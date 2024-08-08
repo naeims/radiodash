@@ -1,3 +1,7 @@
+# Project specific
+.DS_Store
+server/templates/*
+
 # Logs
 logs
 *.log

@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Document Generator",
   "version": "1.0",
-  "permissions": ["activeTab", "scripting"],
-  "host_permissions": ["https://beamers.beamreaders.com/*"],
+  "description": "Generate documents based on templates",
+  "permissions": ["activeTab", "scripting", "storage"],
   "background": {
     "service_worker": "background.js"
   },
@@ -14,5 +14,6 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
-  }
+  },
+  "host_permissions": ["http://localhost:5000/*"]
 }

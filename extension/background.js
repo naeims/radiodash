@@ -2,21 +2,23 @@ const ALLOWED_DOMAIN = "beamers.beamreaders.com";
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "generate_document") {
-    console.log("Received generate_document action");
+    console.log(
+      "Received generate_document action with template:",
+      request.template
+    );
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs.length > 0) {
         let activeTab = tabs[0];
         let activeTabId = activeTab.id;
         let activeTabUrl = activeTab.url;
 
-        // Check if the URL matches the allowed domain
         if (activeTabUrl.includes(ALLOWED_DOMAIN)) {
           console.log("Active tab URL:", activeTabUrl);
           chrome.scripting.executeScript(
             {
               target: { tabId: activeTabId },
               function: collectAndSendData,
-              args: [activeTabUrl],
+              args: [activeTabUrl, request.template],
             },
             (results) => {
               if (chrome.runtime.lastError) {
@@ -39,7 +41,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-function collectAndSendData(pageUrl) {
+function collectAndSendData(pageUrl, template) {
   console.log("collectData function called with URL:", pageUrl);
 
   function extractData(pageUrl) {
@@ -200,7 +202,7 @@ function collectAndSendData(pageUrl) {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ template, data }),
   })
     .then((response) => response.blob())
     .then((blob) => {

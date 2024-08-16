@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Document Generator",
+  "name": "BRV4",
   "version": "1.0",
-  "description": "Generate documents based on templates",
+  "description": "Generate BR reports based on templates",
   "permissions": ["activeTab", "scripting", "storage"],
   "background": {
     "service_worker": "background.js"

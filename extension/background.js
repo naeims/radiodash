@@ -94,22 +94,30 @@ function collectAndSendData(pageUrl, template) {
     };
 
     const getStudyPurpose = () => {
-      const col5Divs = Array.from(
-        document.querySelectorAll(".col-5 .k-card-subtitle")
-      );
-      const col7Divs = Array.from(
-        document.querySelectorAll(".col-7 .hbox .k-card-subtitle")
-      );
+      const studyPurposeLabel = Array.from(
+        document.querySelectorAll("div.col-5 span.k-card-subtitle")
+      ).find((span) => span.textContent.trim() === "Study purpose:");
 
-      const studyPurposeIndex = col5Divs.findIndex(
-        (div) => div.textContent.trim() === "Study purpose:"
-      );
-
-      if (studyPurposeIndex !== -1 && col7Divs[studyPurposeIndex]) {
-        const studyPurposeValue = col7Divs[studyPurposeIndex].querySelector(
-          "span.ng-star-inserted"
-        );
+      if (studyPurposeLabel) {
+        const studyPurposeValue = studyPurposeLabel
+          .closest("div.row")
+          .querySelector("div.col-7 span.ng-star-inserted");
         return studyPurposeValue ? studyPurposeValue.textContent.trim() : "N/A";
+      }
+
+      return "N/A";
+    };
+
+    const getClinicalNotes = () => {
+      const clinicalNotesLabel = Array.from(
+        document.querySelectorAll("h3.font-weight-normal")
+      ).find((h3) => h3.textContent.trim() === "Doctor's Notes");
+
+      if (clinicalNotesLabel) {
+        const textarea = clinicalNotesLabel
+          .closest("div.col-6")
+          .querySelector("textarea.k-input-inner");
+        return textarea ? textarea.value.trim() : "N/A";
       }
 
       return "N/A";
@@ -135,42 +143,6 @@ function collectAndSendData(pageUrl, template) {
       return `${month}${day}${year}${hours}${minutes}${seconds}${milliseconds}`;
     };
 
-    const clickViewMoreAndExtractModalValues = () => {
-      const viewMoreButton = document.querySelector("a.view-more-link");
-      if (viewMoreButton) {
-        viewMoreButton.click();
-
-        const scanDateInput = document.querySelector(
-          'kendo-floatinglabel[text="Scan Date"] input.k-input-inner'
-        );
-        const scanDate = scanDateInput ? scanDateInput.value : "N/A";
-
-        const clinicalNotesLabel = Array.from(
-          document.querySelectorAll("h3.font-weight-normal")
-        ).find((h3) => h3.textContent.trim() === "Doctor's Notes");
-        let clinicalNotes = "N/A";
-        if (clinicalNotesLabel) {
-          const clinicalNotesTextarea = clinicalNotesLabel
-            .closest("div.row")
-            .querySelector("textarea.k-input-inner");
-          clinicalNotes = clinicalNotesTextarea
-            ? clinicalNotesTextarea.value.replace(/\n/g, "").trim()
-            : "N/A";
-        }
-
-        const doneButton = Array.from(
-          document.querySelectorAll("button.k-button")
-        ).find((button) => button.textContent.trim() === "Done");
-        if (doneButton) {
-          doneButton.click();
-        }
-
-        return { scan_date: scanDate, clinical_notes: clinicalNotes };
-      }
-      return { scan_date: "N/A", clinical_notes: "N/A" };
-    };
-
-    const modalValues = clickViewMoreAndExtractModalValues();
     const utcTime = formatUTCTime();
 
     return {
@@ -182,9 +154,9 @@ function collectAndSendData(pageUrl, template) {
       patient_age: getDetailValue("Age:"),
       patient_gender: getDetailValue("Gender:"),
       study_purpose: getStudyPurpose(),
-      clinical_notes: modalValues.clinical_notes,
+      clinical_notes: getClinicalNotes(),
       report_date: formatReportDate(),
-      scan_date: modalValues.scan_date,
+      scan_date: "",
       requesting_doctor: getLinkValue("Primary Dentist:"),
       submitting_group: getLinkValue("Practice Name:"),
       utc_time: utcTime,

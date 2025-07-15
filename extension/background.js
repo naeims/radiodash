@@ -78,7 +78,7 @@ function collectAndSendData(pageUrl, template) {
         document.querySelectorAll("div.detail-label")
       ).find((div) => div.textContent.trim() === labelText);
       if (label) {
-        const valueElement = label.nextElementSibling;
+        const valueElement = label.nextElementSibling?.firstElementChild;
         if (valueElement && valueElement.classList.contains("k-link")) {
           return valueElement.textContent.trim();
         }
@@ -156,7 +156,7 @@ function collectAndSendData(pageUrl, template) {
       study_purpose: getStudyPurpose(),
       clinical_notes: getClinicalNotes(),
       report_date: formatReportDate(),
-      scan_date: "",
+      scan_date: "!",
       requesting_doctor: getLinkValue("Primary Dentist:"),
       submitting_group: getLinkValue("Practice Name:"),
       utc_time: utcTime,

@@ -50,11 +50,11 @@ function collectAndSendData(pageUrl, template) {
     const sidIndex = urlParts.indexOf("radiology") + 1;
     const pid = (urlParts[pidIndex] || "N/A").replace(
       /\B(?=(\d{3})+(?!\d))/g,
-      ","
+      ""
     );
     const sid = (urlParts[sidIndex] || "N/A").replace(
       /\B(?=(\d{3})+(?!\d))/g,
-      ","
+      ""
     );
 
     console.log("Parsed PID:", pid);
@@ -78,7 +78,7 @@ function collectAndSendData(pageUrl, template) {
         document.querySelectorAll("div.detail-label")
       ).find((div) => div.textContent.trim() === labelText);
       if (label) {
-        const valueElement = label.nextElementSibling?.firstElementChild;
+        const valueElement = label.nextElementSibling;
         if (valueElement && valueElement.classList.contains("k-link")) {
           return valueElement.textContent.trim();
         }

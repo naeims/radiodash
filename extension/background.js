@@ -152,7 +152,7 @@ function collectAndSendData(pageUrl, template) {
       patient_name: getPatientName(),
       patient_dob: getDetailValue("DOB:"),
       patient_age: getDetailValue("Age:"),
-      patient_gender: getDetailValue("Gender:"),
+      patient_gender: getDetailValue("Sex:"),
       study_purpose: getStudyPurpose(),
       clinical_notes: getClinicalNotes(),
       report_date: formatReportDate(),

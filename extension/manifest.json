@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "BRV4",
+  "name": "RadioDash",
   "version": "1.0",
-  "description": "Generate BR reports based on templates",
+  "description": "Radiologist Dashboard",
   "permissions": ["activeTab", "scripting", "storage"],
   "background": {
     "service_worker": "background.js"

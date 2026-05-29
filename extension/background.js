@@ -1,5 +1,3 @@
-const ALLOWED_DOMAIN = "beamers.beamreaders.com";
-
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "generate_document") {
     console.log(
@@ -12,28 +10,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         let activeTabId = activeTab.id;
         let activeTabUrl = activeTab.url;
 
-        if (activeTabUrl.includes(ALLOWED_DOMAIN)) {
-          console.log("Active tab URL:", activeTabUrl);
-          chrome.scripting.executeScript(
-            {
-              target: { tabId: activeTabId },
-              function: collectAndSendData,
-              args: [activeTabUrl, request.template],
-            },
-            (results) => {
-              if (chrome.runtime.lastError) {
-                console.error(
-                  "Script injection error:",
-                  chrome.runtime.lastError
-                );
-              } else {
-                console.log("Script injected successfully:", results);
-              }
+        console.log("Active tab URL:", activeTabUrl);
+        chrome.scripting.executeScript(
+          {
+            target: { tabId: activeTabId },
+            function: collectAndSendData,
+            args: [activeTabUrl, request.template],
+          },
+          (results) => {
+            if (chrome.runtime.lastError) {
+              console.error(
+                "Script injection error:",
+                chrome.runtime.lastError
+              );
+            } else {
+              console.log("Script injected successfully:", results);
             }
-          );
-        } else {
-          console.warn(`This extension only works on ${ALLOWED_DOMAIN}`);
-        }
+          }
+        );
       } else {
         console.error("No active tab found");
       }

@@ -2,7 +2,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "generate_document") {
     console.log(
       "Received generate_document action with template:",
-      request.template
+      request.template,
     );
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs.length > 0) {
@@ -21,12 +21,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (chrome.runtime.lastError) {
               console.error(
                 "Script injection error:",
-                chrome.runtime.lastError
+                chrome.runtime.lastError,
               );
             } else {
               console.log("Script injected successfully:", results);
             }
-          }
+          },
         );
       } else {
         console.error("No active tab found");
@@ -40,23 +40,25 @@ function collectAndSendData(pageUrl, template) {
 
   function extractData(pageUrl) {
     const urlParts = pageUrl.split("/");
-    const pidIndex = urlParts.indexOf("patients") + 1;
-    const sidIndex = urlParts.indexOf("radiology") + 1;
-    const pid = (urlParts[pidIndex] || "N/A").replace(
-      /\B(?=(\d{3})+(?!\d))/g,
-      ""
-    );
-    const sid = (urlParts[sidIndex] || "N/A").replace(
-      /\B(?=(\d{3})+(?!\d))/g,
-      ""
-    );
+
+    const getPathValueAfter = (segment) => {
+      const segmentIndex = urlParts.indexOf(segment);
+      if (segmentIndex === -1 || !urlParts[segmentIndex + 1]) {
+        return "N/A";
+      }
+
+      return urlParts[segmentIndex + 1].replace(/\B(?=(\d{3})+(?!\d))/g, "");
+    };
+
+    const pid = getPathValueAfter("patients");
+    const sid = getPathValueAfter("radiology");
 
     console.log("Parsed PID:", pid);
     console.log("Parsed SID:", sid);
 
     const getDetailValue = (labelText) => {
       const detailLabel = Array.from(
-        document.querySelectorAll("div.detail-label")
+        document.querySelectorAll("div.detail-label"),
       ).find((div) => div.textContent.trim() === labelText);
       if (detailLabel) {
         const detailValue = detailLabel.nextElementSibling;
@@ -69,7 +71,7 @@ function collectAndSendData(pageUrl, template) {
 
     const getLinkValue = (labelText) => {
       const label = Array.from(
-        document.querySelectorAll("div.detail-label")
+        document.querySelectorAll("div.detail-label"),
       ).find((div) => div.textContent.trim() === labelText);
       if (label) {
         const valueElement = label.nextElementSibling;
@@ -82,14 +84,14 @@ function collectAndSendData(pageUrl, template) {
 
     const getPatientName = () => {
       const nameDiv = document.querySelector(
-        "div.patient-profile-image-name div.f-size-24"
+        "div.patient-profile-image-name div.f-size-24",
       );
       return nameDiv ? nameDiv.textContent.trim() : "N/A";
     };
 
     const getStudyPurpose = () => {
       const studyPurposeLabel = Array.from(
-        document.querySelectorAll("div.col-5 span.k-card-subtitle")
+        document.querySelectorAll("div.col-5 span.k-card-subtitle"),
       ).find((span) => span.textContent.trim() === "Study purpose:");
 
       if (studyPurposeLabel) {
@@ -104,7 +106,7 @@ function collectAndSendData(pageUrl, template) {
 
     const getClinicalNotes = () => {
       const clinicalNotesLabel = Array.from(
-        document.querySelectorAll("h3.font-weight-normal")
+        document.querySelectorAll("h3.font-weight-normal"),
       ).find((h3) => h3.textContent.trim() === "Doctor's Notes");
 
       if (clinicalNotesLabel) {
@@ -170,7 +172,13 @@ function collectAndSendData(pageUrl, template) {
     },
     body: JSON.stringify({ template, data }),
   })
-    .then((response) => response.blob())
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}`);
+      }
+
+      return response.blob();
+    })
     .then((blob) => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -179,6 +187,7 @@ function collectAndSendData(pageUrl, template) {
       document.body.appendChild(a);
       a.click();
       a.remove();
+      window.URL.revokeObjectURL(url);
     })
     .catch((error) => {
       console.error("Error:", error);

@@ -11,7 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
             { action: "generate_document", template: template },
             (response) => {
               console.log("Response from background:", response);
-            }
+            },
           );
         });
         templateButtons.appendChild(button);

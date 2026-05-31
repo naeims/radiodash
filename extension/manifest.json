@@ -3,7 +3,7 @@
   "name": "RadioDash",
   "version": "1.0",
   "description": "Radiologist Dashboard",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "downloads", "scripting", "storage"],
   "background": {
     "service_worker": "background.js"
   },

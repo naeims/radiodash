@@ -1,39 +1,400 @@
+const SERVER_BASE_URL = "http://localhost:5000";
+const DOWNLOAD_STORAGE_PREFIX = "downloadAgentDownload:";
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "generate_document") {
-    console.log(
-      "Received generate_document action with template:",
-      request.template,
-    );
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs.length > 0) {
-        let activeTab = tabs[0];
-        let activeTabId = activeTab.id;
-        let activeTabUrl = activeTab.url;
+    handleGenerateDocument(request, sendResponse);
+    return true;
+  }
 
-        console.log("Active tab URL:", activeTabUrl);
-        chrome.scripting.executeScript(
-          {
-            target: { tabId: activeTabId },
-            function: collectAndSendData,
-            args: [activeTabUrl, request.template],
-          },
-          (results) => {
-            if (chrome.runtime.lastError) {
-              console.error(
-                "Script injection error:",
-                chrome.runtime.lastError,
-              );
-            } else {
-              console.log("Script injected successfully:", results);
-            }
-          },
+  if (request.action === "get_download_agent_files") {
+    getDownloadAgentFiles()
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("[DA] Failed to get files:", error);
+        sendResponse({ ok: false, error: error.message });
+      });
+    return true;
+  }
+
+  if (request.action === "prepare_download_agent_file") {
+    prepareDownloadAgentFile(request.file)
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("[DA] Failed to prepare file:", error);
+        sendResponse({ ok: false, error: error.message });
+      });
+    return true;
+  }
+
+  if (request.action === "view_download_agent_file") {
+    console.log("[DA] Opening file URL:", request.launchFileUrl);
+    chrome.tabs.create({ url: request.launchFileUrl }, () => {
+      if (chrome.runtime.lastError) {
+        console.error(
+          "[DA] Failed to open file URL:",
+          chrome.runtime.lastError,
         );
-      } else {
-        console.error("No active tab found");
+        sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+        return;
       }
+
+      sendResponse({ ok: true });
     });
+    return true;
   }
 });
+
+chrome.downloads.onChanged.addListener((delta) => {
+  if (!delta.state?.current) {
+    return;
+  }
+
+  handleDownloadStateChanged(delta).catch((error) => {
+    console.error("[DA] Download state handler failed:", error);
+  });
+});
+
+function handleGenerateDocument(request, sendResponse) {
+  console.log(
+    "Received generate_document action with template:",
+    request.template,
+  );
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (tabs.length > 0) {
+      let activeTab = tabs[0];
+      let activeTabId = activeTab.id;
+      let activeTabUrl = activeTab.url;
+
+      console.log("Active tab URL:", activeTabUrl);
+      chrome.scripting.executeScript(
+        {
+          target: { tabId: activeTabId },
+          function: collectAndSendData,
+          args: [activeTabUrl, request.template],
+        },
+        (results) => {
+          if (chrome.runtime.lastError) {
+            console.error("Script injection error:", chrome.runtime.lastError);
+            sendResponse({
+              ok: false,
+              error: chrome.runtime.lastError.message,
+            });
+          } else {
+            console.log("Script injected successfully:", results);
+            sendResponse({ ok: true });
+          }
+        },
+      );
+    } else {
+      console.error("No active tab found");
+      sendResponse({ ok: false, error: "No active tab found" });
+    }
+  });
+}
+
+async function getDownloadAgentFiles() {
+  const activeTab = await getActiveTab();
+
+  if (!activeTab?.id || !activeTab?.url) {
+    throw new Error("No active tab found");
+  }
+
+  console.log("[DA] Inspecting active tab for download links:", activeTab.url);
+  const results = await executeScript(activeTab.id, collectDownloadAgentLinks, [
+    activeTab.url,
+  ]);
+  const payload = results?.[0]?.result;
+
+  if (!payload?.caseKey) {
+    throw new Error("Could not determine case from active tab URL");
+  }
+
+  const serverState = await getJson(
+    `/download-agent/state?caseKey=${encodeURIComponent(payload.caseKey)}`,
+  );
+  const files = payload.files.map((file) => {
+    const state = serverState.files?.[file.fileId] || {};
+
+    return {
+      ...file,
+      status: state.status || "not_downloaded",
+      error: state.error || null,
+      launchFileUrl: state.launchFileUrl || null,
+      updatedAt: state.updatedAt || null,
+    };
+  });
+
+  console.log("[DA] Found portal download files:", files);
+
+  return {
+    ok: true,
+    caseKey: payload.caseKey,
+    files,
+  };
+}
+
+async function prepareDownloadAgentFile(file) {
+  if (!file?.caseKey || !file?.fileId || !file?.downloadUrl) {
+    throw new Error("Invalid Download Agent file payload");
+  }
+
+  console.log("[DA] Starting browser download:", file);
+  await postJson("/download-agent/jobs", file);
+
+  const downloadId = await downloadFile(file.downloadUrl);
+
+  await storageSet(downloadStorageKey(downloadId), file);
+
+  console.log("[DA] Browser download started", {
+    downloadId,
+    fileName: file.fileName,
+  });
+
+  const [downloadItem] = await searchDownloads({ id: downloadId });
+  if (
+    downloadItem?.state === "complete" ||
+    downloadItem?.state === "interrupted"
+  ) {
+    handleDownloadStateChanged({
+      id: downloadId,
+      state: { current: downloadItem.state },
+      error: downloadItem.error ? { current: downloadItem.error } : null,
+    }).catch((error) => {
+      console.error("[DA] Immediate download state handler failed:", error);
+    });
+  }
+
+  return {
+    ok: true,
+    downloadId,
+  };
+}
+
+async function handleDownloadStateChanged(delta) {
+  const key = downloadStorageKey(delta.id);
+  const file = await storageGet(key);
+
+  if (!file) {
+    return;
+  }
+
+  if (delta.state.current === "interrupted") {
+    const error = delta.error?.current || "Browser download interrupted";
+    console.error("[DA] Browser download interrupted", { file, error });
+    await postJson("/download-agent/fail", { ...file, error });
+    await storageRemove(key);
+    notifyDownloadAgentStateUpdated(file.caseKey);
+    return;
+  }
+
+  if (delta.state.current !== "complete") {
+    return;
+  }
+
+  const [downloadItem] = await searchDownloads({ id: delta.id });
+
+  if (!downloadItem?.filename) {
+    await postJson("/download-agent/fail", {
+      ...file,
+      error: "Chrome did not provide a completed download path",
+    });
+    await storageRemove(key);
+    notifyDownloadAgentStateUpdated(file.caseKey);
+    return;
+  }
+
+  console.log("[DA] Browser download complete", {
+    downloadId: delta.id,
+    filename: downloadItem.filename,
+  });
+
+  try {
+    await postJson("/download-agent/complete", {
+      ...file,
+      downloadedFilePath: downloadItem.filename,
+    });
+  } catch (error) {
+    console.error("[DA] Server preparation failed:", error);
+  } finally {
+    await storageRemove(key);
+    notifyDownloadAgentStateUpdated(file.caseKey);
+  }
+}
+
+function notifyDownloadAgentStateUpdated(caseKey) {
+  chrome.runtime.sendMessage(
+    { action: "download_agent_state_updated", caseKey },
+    () => {
+      if (chrome.runtime.lastError) {
+        console.log("[DA] No popup listener for state update");
+      }
+    },
+  );
+}
+
+function collectDownloadAgentLinks(pageUrl) {
+  const url = new URL(pageUrl);
+  const parts = url.pathname.split("/").filter(Boolean);
+  const patientIndex = parts.indexOf("patients");
+  const radiologyIndex = parts.indexOf("radiology");
+  const pid =
+    patientIndex !== -1 && parts[patientIndex + 1]
+      ? parts[patientIndex + 1]
+      : "unknown-patient";
+  const sid =
+    radiologyIndex !== -1 && parts[radiologyIndex + 1]
+      ? parts[radiologyIndex + 1]
+      : "unknown-study";
+  const caseKey = `patients/${pid}/radiology/${sid}`;
+
+  function simpleHash(value) {
+    let hash = 0;
+
+    for (let index = 0; index < value.length; index += 1) {
+      hash = (hash << 5) - hash + value.charCodeAt(index);
+      hash |= 0;
+    }
+
+    return Math.abs(hash).toString(36);
+  }
+
+  const files = Array.from(
+    document.querySelectorAll(".report-detail-download-btn[data-download-url]"),
+  ).map((button, index) => {
+    const row = button.closest(".k-hbox") || button.parentElement;
+    const nameElement = row?.querySelector(".file-name-trunc");
+    const fileName =
+      nameElement?.getAttribute("title")?.trim() ||
+      nameElement?.textContent?.trim() ||
+      button.getAttribute("title")?.trim() ||
+      `Download ${index + 1}`;
+    const downloadUrl = new URL(button.dataset.downloadUrl, url.href).href;
+    const fileId = `${caseKey}/${simpleHash(`${downloadUrl}|${fileName}`)}`;
+
+    return {
+      caseKey,
+      fileId,
+      fileName,
+      downloadUrl,
+    };
+  });
+
+  return {
+    caseKey,
+    files,
+  };
+}
+
+function getActiveTab() {
+  return new Promise((resolve) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      resolve(tabs[0] || null);
+    });
+  });
+}
+
+function executeScript(tabId, func, args = []) {
+  return new Promise((resolve, reject) => {
+    chrome.scripting.executeScript(
+      {
+        target: { tabId },
+        function: func,
+        args,
+      },
+      (results) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+
+        resolve(results);
+      },
+    );
+  });
+}
+
+function downloadFile(url) {
+  return new Promise((resolve, reject) => {
+    chrome.downloads.download(
+      {
+        url,
+        saveAs: false,
+        conflictAction: "uniquify",
+      },
+      (downloadId) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+
+        resolve(downloadId);
+      },
+    );
+  });
+}
+
+function searchDownloads(query) {
+  return new Promise((resolve, reject) => {
+    chrome.downloads.search(query, (items) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      resolve(items);
+    });
+  });
+}
+
+function downloadStorageKey(downloadId) {
+  return `${DOWNLOAD_STORAGE_PREFIX}${downloadId}`;
+}
+
+function storageSet(key, value) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [key]: value }, resolve);
+  });
+}
+
+function storageGet(key) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(key, (items) => resolve(items[key] || null));
+  });
+}
+
+function storageRemove(key) {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove(key, resolve);
+  });
+}
+
+async function getJson(pathAndQuery) {
+  const response = await fetch(`${SERVER_BASE_URL}${pathAndQuery}`);
+
+  if (!response.ok) {
+    throw new Error(`Server returned HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function postJson(pathAndQuery, body) {
+  const response = await fetch(`${SERVER_BASE_URL}${pathAndQuery}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload.error || `Server returned HTTP ${response.status}`);
+  }
+
+  return payload;
+}
 
 function collectAndSendData(pageUrl, template) {
   console.log("collectData function called with URL:", pageUrl);

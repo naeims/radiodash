@@ -407,12 +407,30 @@ function waitForNextTick() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-async function copySourceToManaged(sourceFilePath, destinationDir, fileName) {
+async function moveSourceToManaged(sourceFilePath, destinationDir, fileName) {
   const safeName = safeFileName(fileName, path.basename(sourceFilePath));
   const destinationPath = path.join(destinationDir, safeName);
 
   await fs.promises.mkdir(destinationDir, { recursive: true });
-  await fs.promises.copyFile(sourceFilePath, destinationPath);
+
+  if (path.resolve(sourceFilePath) === path.resolve(destinationPath)) {
+    return destinationPath;
+  }
+
+  try {
+    await fs.promises.rename(sourceFilePath, destinationPath);
+  } catch (error) {
+    if (error.code !== "EXDEV") {
+      throw error;
+    }
+
+    console.log("[DA] Rename crossed filesystems; falling back to copy+unlink", {
+      sourceFilePath,
+      destinationPath,
+    });
+    await fs.promises.copyFile(sourceFilePath, destinationPath);
+    await fs.promises.unlink(sourceFilePath);
+  }
 
   return destinationPath;
 }
@@ -599,11 +617,11 @@ async function prepareDownloadedFile(file, downloadedFilePath) {
   fs.rmSync(fileDir, { recursive: true, force: true });
   fs.mkdirSync(fileDir, { recursive: true });
 
-  console.log("[DA] Copying browser download into managed temp", {
+  console.log("[DA] Moving browser download into managed temp", {
     sourceFilePath,
     fileDir,
   });
-  const managedSourcePath = await copySourceToManaged(
+  const managedSourcePath = await moveSourceToManaged(
     sourceFilePath,
     originalDir,
     file.fileName || path.basename(sourceFilePath),

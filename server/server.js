@@ -229,25 +229,56 @@ function getOrCreateFileState(state, file) {
   return state.files[file.fileId];
 }
 
+function resetFileStateToNotDownloaded(fileState) {
+  fileState.status = DA_STATUS.NOT_DOWNLOADED;
+  fileState.phase = null;
+  fileState.error = null;
+  fileState.sourceFilePath = null;
+  fileState.launchFilePath = null;
+  fileState.launchFileUrl = null;
+  fileState.managedFilePath = null;
+  fileState.updatedAt = nowIso();
+}
+
+function pathExists(filePath) {
+  return (
+    typeof filePath === "string" && filePath !== "" && fs.existsSync(filePath)
+  );
+}
+
+function hasStalePreparedDiskState(fileState) {
+  const diskPaths = [
+    fileState.launchFilePath,
+    fileState.managedFilePath,
+  ].filter((filePath) => typeof filePath === "string" && filePath !== "");
+
+  if (fileState.status === DA_STATUS.READY) {
+    return !pathExists(fileState.launchFilePath);
+  }
+
+  if (fileState.status !== DA_STATUS.FAILED) {
+    return false;
+  }
+
+  if (!pathExists(fileState.launchFilePath)) {
+    return true;
+  }
+
+  return diskPaths.some((filePath) => !fs.existsSync(filePath));
+}
+
 function refreshCaseStateFromDisk(state) {
   let changed = false;
 
   Object.values(state.files).forEach((fileState) => {
-    if (
-      fileState.status === DA_STATUS.READY &&
-      (!fileState.launchFilePath || !fs.existsSync(fileState.launchFilePath))
-    ) {
-      console.log("[DA] Prepared launch file missing; resetting to Prepare", {
+    if (hasStalePreparedDiskState(fileState)) {
+      console.log("[DA] Prepared disk state missing; resetting to Prepare", {
         fileId: fileState.fileId,
         launchFilePath: fileState.launchFilePath,
+        managedFilePath: fileState.managedFilePath,
+        status: fileState.status,
       });
-      fileState.status = DA_STATUS.NOT_DOWNLOADED;
-      fileState.phase = null;
-      fileState.error = null;
-      fileState.launchFilePath = null;
-      fileState.launchFileUrl = null;
-      fileState.managedFilePath = null;
-      fileState.updatedAt = nowIso();
+      resetFileStateToNotDownloaded(fileState);
       changed = true;
     }
   });
@@ -462,23 +493,36 @@ Return only strict JSON in this exact shape:
 {"path":"relative/path/to/launch-file"}
 
 Choose the single most likely file the radiologist should open. The path must be relative to the root shown below. Do not include markdown or explanations.
+You must correctly handle directory structures that have spaces in their names and always generate a valid path.
+Take extra care not to drop any space characters from the directory structure path names. For example, if a directory name is "A. BC 2", make sure your response uses that string exactly, and NOT "A.BC 2" where the space after the period is dropped erroneously.
 
 Directory tree:
 ${tree}`;
+  const ollamaRequest = {
+    model: OLLAMA_MODEL,
+    prompt,
+    temperature: 0,
+    max_tokens: 200,
+    stream: false,
+  };
 
-  console.log("[DA] Calling Ollama for launch-file selection");
+  console.log("[DA][Ollama] Request", {
+    url: OLLAMA_COMPLETIONS_URL,
+    model: OLLAMA_MODEL,
+    extractDir,
+  });
+  console.log("[DA][Ollama] Prompt\n" + prompt);
   const response = await fetch(OLLAMA_COMPLETIONS_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: OLLAMA_MODEL,
-      prompt,
-      temperature: 0,
-      max_tokens: 200,
-      stream: false,
-    }),
+    body: JSON.stringify(ollamaRequest),
+  });
+
+  console.log("[DA][Ollama] HTTP response", {
+    status: response.status,
+    ok: response.ok,
   });
 
   if (!response.ok) {
@@ -486,8 +530,11 @@ ${tree}`;
   }
 
   const body = await response.json();
+  console.log("[DA][Ollama] Response body", body);
   const text = body?.choices?.[0]?.text;
+  console.log("[DA][Ollama] Completion text", text);
   const result = parseStrictJsonObject(text);
+  console.log("[DA][Ollama] Parsed JSON", result);
 
   if (typeof result.path !== "string" || result.path.trim() === "") {
     throw new Error("LLM response did not include a path");
@@ -506,6 +553,11 @@ ${tree}`;
   if (!fs.existsSync(launchFilePath) || !fs.statSync(launchFilePath).isFile()) {
     throw new Error(`LLM selected a missing file: ${relativeLaunchPath}`);
   }
+
+  console.log("[DA][Ollama] Selected launch file", {
+    relativeLaunchPath,
+    launchFilePath,
+  });
 
   return launchFilePath;
 }
@@ -743,13 +795,7 @@ function createDownloadAgentOpenHandler() {
       console.error("[DA] Open failed:", error);
 
       if (error.message === "Prepared launch file is missing") {
-        fileState.status = DA_STATUS.NOT_DOWNLOADED;
-        fileState.phase = null;
-        fileState.error = null;
-        fileState.launchFilePath = null;
-        fileState.launchFileUrl = null;
-        fileState.managedFilePath = null;
-        fileState.updatedAt = nowIso();
+        resetFileStateToNotDownloaded(fileState);
         writeCaseState(state);
       }
 

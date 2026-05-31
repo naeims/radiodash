@@ -23,3 +23,7 @@ build/
 
 # Local DOCX templates may contain sensitive case or practice data.
 server/templates/*.docx
+
+# Local fake-portal sample downloads may contain case data.
+test-portal/files/*
+!test-portal/files/.gitkeep

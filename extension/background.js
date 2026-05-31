@@ -28,19 +28,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === "view_download_agent_file") {
-    console.log("[DA] Opening file URL:", request.launchFileUrl);
-    chrome.tabs.create({ url: request.launchFileUrl }, () => {
-      if (chrome.runtime.lastError) {
-        console.error(
-          "[DA] Failed to open file URL:",
-          chrome.runtime.lastError,
-        );
-        sendResponse({ ok: false, error: chrome.runtime.lastError.message });
-        return;
-      }
-
-      sendResponse({ ok: true });
-    });
+    viewDownloadAgentFile(request.file)
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("[DA] Failed to open prepared file:", error);
+        sendResponse({ ok: false, error: error.message });
+      });
     return true;
   }
 });
@@ -168,6 +161,23 @@ async function prepareDownloadAgentFile(file) {
   return {
     ok: true,
     downloadId,
+  };
+}
+
+async function viewDownloadAgentFile(file) {
+  if (!file?.caseKey || !file?.fileId) {
+    throw new Error("Invalid Download Agent file payload");
+  }
+
+  console.log("[DA] Requesting OS open for prepared file", {
+    caseKey: file.caseKey,
+    fileId: file.fileId,
+    fileName: file.fileName,
+  });
+
+  return {
+    ok: true,
+    ...(await postJson("/download-agent/open", file)),
   };
 }
 

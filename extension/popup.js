@@ -123,14 +123,31 @@ function renderDownloadAgentFiles(files) {
 }
 
 function configureActionButton(button, file) {
-  if (file.status === "ready" && file.launchFileUrl) {
+  if (file.status === "ready") {
     button.textContent = "View";
     button.addEventListener("click", () => {
-      console.log("[DA] Opening launch file", file.launchFileUrl);
-      chrome.runtime.sendMessage({
-        action: "view_download_agent_file",
-        launchFileUrl: file.launchFileUrl,
-      });
+      console.log("[DA] Opening launch file through server", file);
+      chrome.runtime.sendMessage(
+        {
+          action: "view_download_agent_file",
+          file,
+        },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            console.error(
+              "[DA] View message failed:",
+              chrome.runtime.lastError,
+            );
+            loadDownloadAgentFiles();
+            return;
+          }
+
+          if (!response?.ok) {
+            console.error("[DA] View failed:", response?.error);
+            loadDownloadAgentFiles();
+          }
+        },
+      );
     });
     return;
   }

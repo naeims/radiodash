@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const { spawn } = require("child_process");
 const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
@@ -103,6 +104,15 @@ function windowsPathToWslPath(filePath) {
   const rest = match[2].replace(/\\/g, "/");
 
   return `/mnt/${drive}/${rest}`;
+}
+
+function wslPathToWindowsPath(filePath) {
+  const match = String(filePath).match(/^\/mnt\/([a-z])\/(.*)$/i);
+  if (!match) {
+    return filePath;
+  }
+
+  return `${match[1].toUpperCase()}:\\${match[2].replace(/\//g, "\\")}`;
 }
 
 function normalizeDownloadedPath(filePath) {
@@ -227,8 +237,16 @@ function refreshCaseStateFromDisk(state) {
       fileState.status === DA_STATUS.READY &&
       (!fileState.launchFilePath || !fs.existsSync(fileState.launchFilePath))
     ) {
-      fileState.status = DA_STATUS.FAILED;
-      fileState.error = "Prepared launch file is missing";
+      console.log("[DA] Prepared launch file missing; resetting to Prepare", {
+        fileId: fileState.fileId,
+        launchFilePath: fileState.launchFilePath,
+      });
+      fileState.status = DA_STATUS.NOT_DOWNLOADED;
+      fileState.phase = null;
+      fileState.error = null;
+      fileState.launchFilePath = null;
+      fileState.launchFileUrl = null;
+      fileState.managedFilePath = null;
       fileState.updatedAt = nowIso();
       changed = true;
     }
@@ -285,6 +303,68 @@ function pathToFileUrl(filePath) {
     .split("/")
     .map((part, index) => (index === 0 ? "" : encodeURIComponent(part)))
     .join("/")}`;
+}
+
+function quotePowerShellSingle(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function spawnDetached(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
+
+async function openFileWithOs(filePath) {
+  if (
+    !filePath ||
+    !fs.existsSync(filePath) ||
+    !fs.statSync(filePath).isFile()
+  ) {
+    throw new Error("Prepared launch file is missing");
+  }
+
+  console.log("[DA] Opening launch file with OS", { filePath });
+
+  if (isWsl()) {
+    const windowsPath = wslPathToWindowsPath(filePath);
+    await spawnDetached("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      `Start-Process -FilePath ${quotePowerShellSingle(windowsPath)}`,
+    ]);
+    return;
+  }
+
+  if (process.platform === "win32") {
+    await spawnDetached("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      `Start-Process -FilePath ${quotePowerShellSingle(filePath)}`,
+    ]);
+    return;
+  }
+
+  if (process.platform === "darwin") {
+    await spawnDetached("open", [filePath]);
+    return;
+  }
+
+  await spawnDetached("xdg-open", [filePath]);
 }
 
 function assertInside(rootDir, targetPath) {
@@ -640,6 +720,44 @@ function createDownloadAgentFailHandler() {
   };
 }
 
+function createDownloadAgentOpenHandler() {
+  return async (req, res) => {
+    const file = validateCaseAndFile(req, res);
+
+    if (!file) {
+      return;
+    }
+
+    const state = readCaseState(file.caseKey);
+    const fileState = state.files[file.fileId];
+
+    if (!fileState || fileState.status !== DA_STATUS.READY) {
+      res.status(409).json({ error: "File is not ready to view" });
+      return;
+    }
+
+    try {
+      await openFileWithOs(fileState.launchFilePath);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[DA] Open failed:", error);
+
+      if (error.message === "Prepared launch file is missing") {
+        fileState.status = DA_STATUS.NOT_DOWNLOADED;
+        fileState.phase = null;
+        fileState.error = null;
+        fileState.launchFilePath = null;
+        fileState.launchFileUrl = null;
+        fileState.managedFilePath = null;
+        fileState.updatedAt = nowIso();
+        writeCaseState(state);
+      }
+
+      res.status(500).json({ error: error.message });
+    }
+  };
+}
+
 function createDownloadAgentStateHandler() {
   return (req, res) => {
     const caseKey = req.query.caseKey;
@@ -666,6 +784,7 @@ function createApp({ templateDir = DEFAULT_TEMPLATE_DIR } = {}) {
   app.post("/download-agent/jobs", createDownloadAgentJobHandler());
   app.post("/download-agent/complete", createDownloadAgentCompleteHandler());
   app.post("/download-agent/fail", createDownloadAgentFailHandler());
+  app.post("/download-agent/open", createDownloadAgentOpenHandler());
   app.get("/download-agent/state", createDownloadAgentStateHandler());
 
   return app;
@@ -684,6 +803,7 @@ module.exports = {
   createDownloadAgentCompleteHandler,
   createDownloadAgentFailHandler,
   createDownloadAgentJobHandler,
+  createDownloadAgentOpenHandler,
   createDownloadAgentStateHandler,
   createTemplateListHandler,
   listTemplates,

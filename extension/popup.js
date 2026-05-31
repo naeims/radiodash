@@ -1,6 +1,8 @@
 const SERVER_BASE_URL = "http://localhost:5000";
+const DOWNLOAD_AGENT_POLL_INTERVAL_MS = 2000;
 
 let currentDownloadAgentPayload = null;
+let downloadAgentPollTimer = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   loadTemplates();
@@ -50,8 +52,12 @@ function loadTemplates() {
     });
 }
 
-function loadDownloadAgentFiles() {
-  setDownloadAgentStatus("Loading");
+function loadDownloadAgentFiles(options = {}) {
+  const { showLoading = true } = options;
+
+  if (showLoading) {
+    setDownloadAgentStatus("Loading");
+  }
 
   chrome.runtime.sendMessage(
     { action: "get_download_agent_files" },
@@ -59,14 +65,14 @@ function loadDownloadAgentFiles() {
       if (chrome.runtime.lastError) {
         console.error("[DA] Error loading files:", chrome.runtime.lastError);
         setDownloadAgentStatus("Unavailable");
-        renderDownloadAgentFiles([]);
+        renderKnownDownloadAgentFallback();
         return;
       }
 
       if (!payload?.ok) {
         console.error("[DA] Error loading files:", payload?.error);
         setDownloadAgentStatus(payload?.error || "Unavailable");
-        renderDownloadAgentFiles([]);
+        renderKnownDownloadAgentFallback();
         return;
       }
 
@@ -75,6 +81,7 @@ function loadDownloadAgentFiles() {
         payload.files.length === 1 ? "1 file" : `${payload.files.length} files`,
       );
       renderDownloadAgentFiles(payload.files);
+      scheduleDownloadAgentPolling(payload.files);
     },
   );
 }
@@ -122,6 +129,32 @@ function renderDownloadAgentFiles(files) {
   });
 }
 
+function renderKnownDownloadAgentFallback() {
+  if (currentDownloadAgentPayload) {
+    renderDownloadAgentFiles(currentDownloadAgentPayload.files);
+    scheduleDownloadAgentPolling(currentDownloadAgentPayload.files);
+    return;
+  }
+
+  renderDownloadAgentFiles([]);
+}
+
+function scheduleDownloadAgentPolling(files) {
+  if (downloadAgentPollTimer) {
+    clearTimeout(downloadAgentPollTimer);
+    downloadAgentPollTimer = null;
+  }
+
+  if (!files.some((file) => file.status === "preparing")) {
+    return;
+  }
+
+  downloadAgentPollTimer = setTimeout(() => {
+    console.log("[DA] Polling while preparation is in progress");
+    loadDownloadAgentFiles({ showLoading: false });
+  }, DOWNLOAD_AGENT_POLL_INTERVAL_MS);
+}
+
 function configureActionButton(button, file) {
   if (file.status === "ready") {
     button.textContent = "View";
@@ -154,6 +187,12 @@ function configureActionButton(button, file) {
 
   if (file.status === "preparing") {
     button.textContent = "Preparing";
+    button.disabled = true;
+    return;
+  }
+
+  if (!file.canPrepare) {
+    button.textContent = "Unavailable";
     button.disabled = true;
     return;
   }

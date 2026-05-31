@@ -1,5 +1,9 @@
 const SERVER_BASE_URL = "http://localhost:5000";
 const DOWNLOAD_STORAGE_PREFIX = "downloadAgentDownload:";
+const PORTAL_CLICK_PENDING_KEY = "downloadAgentPendingPortalClicks";
+const PORTAL_CLICK_TIMEOUT_MS = 60000;
+
+const portalClickTimeouts = new Map();
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "generate_document") {
@@ -45,6 +49,12 @@ chrome.downloads.onChanged.addListener((delta) => {
 
   handleDownloadStateChanged(delta).catch((error) => {
     console.error("[DA] Download state handler failed:", error);
+  });
+});
+
+chrome.downloads.onCreated.addListener((downloadItem) => {
+  handleDownloadCreated(downloadItem).catch((error) => {
+    console.error("[DA] Download created handler failed:", error);
   });
 });
 
@@ -106,17 +116,34 @@ async function getDownloadAgentFiles() {
   const serverState = await getJson(
     `/download-agent/state?caseKey=${encodeURIComponent(payload.caseKey)}`,
   );
-  const files = payload.files.map((file) => {
-    const state = serverState.files?.[file.fileId] || {};
+  const serverFilesByName = buildUniqueServerFilesByName(serverState.files);
+  const files = payload.files
+    .map((file) => {
+      const exactState = serverState.files?.[file.fileId] || null;
+      const fallbackState = exactState
+        ? null
+        : serverFilesByName.get(file.fileName) || null;
+      const state = exactState || fallbackState || {};
 
-    return {
-      ...file,
-      status: state.status || "not_downloaded",
-      error: state.error || null,
-      launchFileUrl: state.launchFileUrl || null,
-      updatedAt: state.updatedAt || null,
-    };
-  });
+      if (fallbackState) {
+        console.log("[DA] Matched portal row to server state by file name", {
+          fileName: file.fileName,
+          portalFileId: file.fileId,
+          stateFileId: fallbackState.fileId,
+        });
+      }
+
+      return {
+        ...file,
+        fileId: state.fileId || file.fileId,
+        status: state.status || "not_downloaded",
+        phase: state.phase || null,
+        error: state.error || null,
+        launchFileUrl: state.launchFileUrl || null,
+        updatedAt: state.updatedAt || null,
+      };
+    })
+    .filter((file) => file.canPrepare || file.status !== "not_downloaded");
 
   console.log("[DA] Found portal download files:", files);
 
@@ -127,9 +154,41 @@ async function getDownloadAgentFiles() {
   };
 }
 
+function buildUniqueServerFilesByName(serverFiles) {
+  const filesByName = new Map();
+  const duplicateNames = new Set();
+
+  Object.values(serverFiles || {}).forEach((fileState) => {
+    if (!fileState?.fileName) {
+      return;
+    }
+
+    if (filesByName.has(fileState.fileName)) {
+      duplicateNames.add(fileState.fileName);
+      return;
+    }
+
+    filesByName.set(fileState.fileName, fileState);
+  });
+
+  duplicateNames.forEach((fileName) => filesByName.delete(fileName));
+
+  if (duplicateNames.size > 0) {
+    console.log("[DA] Skipping ambiguous file-name state matches", {
+      duplicateNames: Array.from(duplicateNames),
+    });
+  }
+
+  return filesByName;
+}
+
 async function prepareDownloadAgentFile(file) {
-  if (!file?.caseKey || !file?.fileId || !file?.downloadUrl) {
+  if (!file?.caseKey || !file?.fileId) {
     throw new Error("Invalid Download Agent file payload");
+  }
+
+  if (!file.downloadUrl) {
+    return preparePortalClickDownloadAgentFile(file);
   }
 
   console.log("[DA] Starting browser download:", file);
@@ -161,6 +220,57 @@ async function prepareDownloadAgentFile(file) {
   return {
     ok: true,
     downloadId,
+  };
+}
+
+async function preparePortalClickDownloadAgentFile(file) {
+  const activeTab = await getActiveTab();
+
+  if (!activeTab?.id) {
+    throw new Error("No active tab found");
+  }
+
+  console.log("[DA] Starting portal-click browser download:", file);
+  await postJson("/download-agent/jobs", file);
+
+  const pending = await registerPendingPortalClick(file, activeTab.id);
+
+  try {
+    const results = await executeScript(
+      activeTab.id,
+      clickPortalDownloadButton,
+      [
+        {
+          buttonIndex: file.buttonIndex,
+          fileName: file.fileName,
+        },
+      ],
+    );
+    const payload = results?.[0]?.result;
+
+    if (!payload?.ok) {
+      throw new Error(
+        payload?.error || "Portal download button was not clicked",
+      );
+    }
+
+    console.log("[DA] Portal download button clicked", {
+      fileName: file.fileName,
+      buttonIndex: file.buttonIndex,
+      token: pending.token,
+    });
+  } catch (error) {
+    await removePendingPortalClick(pending.token);
+    await postJson("/download-agent/fail", {
+      ...file,
+      error: error.message,
+    });
+    throw error;
+  }
+
+  return {
+    ok: true,
+    downloadPending: true,
   };
 }
 
@@ -232,6 +342,33 @@ async function handleDownloadStateChanged(delta) {
   }
 }
 
+async function handleDownloadCreated(downloadItem) {
+  const pending = await claimPendingPortalClick(downloadItem);
+
+  if (!pending) {
+    return;
+  }
+
+  await storageSet(downloadStorageKey(downloadItem.id), pending.file);
+
+  console.log("[DA] Associated portal-click download with DA file", {
+    downloadId: downloadItem.id,
+    fileName: pending.file.fileName,
+    downloadUrl: downloadItem.url,
+  });
+
+  if (
+    downloadItem.state === "complete" ||
+    downloadItem.state === "interrupted"
+  ) {
+    await handleDownloadStateChanged({
+      id: downloadItem.id,
+      state: { current: downloadItem.state },
+      error: downloadItem.error ? { current: downloadItem.error } : null,
+    });
+  }
+}
+
 function notifyDownloadAgentStateUpdated(caseKey) {
   chrome.runtime.sendMessage(
     { action: "download_agent_state_updated", caseKey },
@@ -269,30 +406,117 @@ function collectDownloadAgentLinks(pageUrl) {
     return Math.abs(hash).toString(36);
   }
 
-  const files = Array.from(
-    document.querySelectorAll(".report-detail-download-btn[data-download-url]"),
-  ).map((button, index) => {
-    const row = button.closest(".k-hbox") || button.parentElement;
+  const buttons = Array.from(
+    document.querySelectorAll(".report-detail-download-btn"),
+  );
+  const rowCandidates = Array.from(
+    document.querySelectorAll(".recent-files-list .k-hbox, .file-name-trunc"),
+  );
+  const rows = Array.from(
+    new Set(
+      rowCandidates
+        .map((element) =>
+          element.matches(".file-name-trunc")
+            ? element.closest(".k-hbox") || element.parentElement
+            : element,
+        )
+        .filter((row) => row?.querySelector(".file-name-trunc")),
+    ),
+  );
+
+  const files = rows.map((row, index) => {
+    const button = row.querySelector(".report-detail-download-btn");
     const nameElement = row?.querySelector(".file-name-trunc");
     const fileName =
       nameElement?.getAttribute("title")?.trim() ||
       nameElement?.textContent?.trim() ||
-      button.getAttribute("title")?.trim() ||
+      button?.getAttribute("title")?.trim() ||
       `Download ${index + 1}`;
-    const downloadUrl = new URL(button.dataset.downloadUrl, url.href).href;
-    const fileId = `${caseKey}/${simpleHash(`${downloadUrl}|${fileName}`)}`;
+    const rawDownloadUrl =
+      button?.dataset.downloadUrl ||
+      button?.getAttribute("data-download-url") ||
+      button?.getAttribute("href");
+    const downloadUrl = rawDownloadUrl
+      ? new URL(rawDownloadUrl, url.href).href
+      : "";
+    const buttonIndex = button ? buttons.indexOf(button) : -1;
+    const downloadIdentity = downloadUrl || `portal-click:${index}:${fileName}`;
+    const fileId = `${caseKey}/${simpleHash(`${downloadIdentity}|${fileName}`)}`;
 
     return {
       caseKey,
       fileId,
       fileName,
       downloadUrl,
+      downloadAction: downloadUrl
+        ? "direct_url"
+        : button
+          ? "portal_click"
+          : "unavailable",
+      canPrepare: Boolean(downloadUrl || button),
+      buttonIndex,
     };
+  });
+
+  console.log("[DA] Portal download row scan", {
+    rowCount: rows.length,
+    buttonCount: buttons.length,
+    fileCount: files.length,
+    files,
   });
 
   return {
     caseKey,
     files,
+  };
+}
+
+function clickPortalDownloadButton(target) {
+  const buttons = Array.from(
+    document.querySelectorAll(".report-detail-download-btn"),
+  );
+  const getButtonFileName = (button) => {
+    const row = button.closest(".k-hbox") || button.parentElement;
+    const nameElement = row?.querySelector(".file-name-trunc");
+
+    return (
+      nameElement?.getAttribute("title")?.trim() ||
+      nameElement?.textContent?.trim() ||
+      ""
+    );
+  };
+  const indexedButton =
+    Number.isInteger(target?.buttonIndex) && target.buttonIndex >= 0
+      ? buttons[target.buttonIndex]
+      : null;
+  const byIndex =
+    indexedButton &&
+    (!target?.fileName || getButtonFileName(indexedButton) === target.fileName)
+      ? indexedButton
+      : null;
+  const byName = buttons.find((button) => {
+    return getButtonFileName(button) === target?.fileName;
+  });
+  const button = byIndex || byName;
+
+  if (!button) {
+    return {
+      ok: false,
+      error: "Portal download button could not be found",
+    };
+  }
+
+  if (button.disabled || button.getAttribute("aria-disabled") === "true") {
+    return {
+      ok: false,
+      error: "Portal download button is disabled",
+    };
+  }
+
+  button.click();
+
+  return {
+    ok: true,
   };
 }
 
@@ -359,6 +583,97 @@ function searchDownloads(query) {
 
 function downloadStorageKey(downloadId) {
   return `${DOWNLOAD_STORAGE_PREFIX}${downloadId}`;
+}
+
+async function registerPendingPortalClick(file, tabId) {
+  const pending = {
+    token: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    createdAt: Date.now(),
+    tabId,
+    file,
+  };
+  const pendingClicks = await getPendingPortalClicks();
+
+  await setPendingPortalClicks([...pendingClicks, pending]);
+  schedulePortalClickTimeout(pending);
+
+  return pending;
+}
+
+async function claimPendingPortalClick(downloadItem) {
+  const pendingClicks = await getPendingPortalClicks();
+  const now = Date.now();
+  const activePendingClicks = pendingClicks.filter(
+    (pending) => now - pending.createdAt <= PORTAL_CLICK_TIMEOUT_MS,
+  );
+
+  if (activePendingClicks.length !== pendingClicks.length) {
+    await setPendingPortalClicks(activePendingClicks);
+  }
+
+  if (activePendingClicks.length === 0) {
+    return null;
+  }
+
+  const fileNameMatchIndex = activePendingClicks.findIndex((pending) =>
+    downloadItem.filename?.endsWith(pending.file.fileName),
+  );
+  const pendingIndex = fileNameMatchIndex === -1 ? 0 : fileNameMatchIndex;
+  const [pending] = activePendingClicks.splice(pendingIndex, 1);
+
+  await setPendingPortalClicks(activePendingClicks);
+  clearPortalClickTimeout(pending.token);
+
+  return pending;
+}
+
+async function removePendingPortalClick(token) {
+  const pendingClicks = await getPendingPortalClicks();
+
+  await setPendingPortalClicks(
+    pendingClicks.filter((pending) => pending.token !== token),
+  );
+  clearPortalClickTimeout(token);
+}
+
+async function getPendingPortalClicks() {
+  const pendingClicks = await storageGet(PORTAL_CLICK_PENDING_KEY);
+
+  return Array.isArray(pendingClicks) ? pendingClicks : [];
+}
+
+function setPendingPortalClicks(pendingClicks) {
+  return storageSet(PORTAL_CLICK_PENDING_KEY, pendingClicks);
+}
+
+function schedulePortalClickTimeout(pending) {
+  clearPortalClickTimeout(pending.token);
+
+  const timeoutId = setTimeout(() => {
+    handlePortalClickTimeout(pending).catch((error) => {
+      console.error("[DA] Portal-click timeout handler failed:", error);
+    });
+  }, PORTAL_CLICK_TIMEOUT_MS);
+
+  portalClickTimeouts.set(pending.token, timeoutId);
+}
+
+function clearPortalClickTimeout(token) {
+  const timeoutId = portalClickTimeouts.get(token);
+
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+    portalClickTimeouts.delete(token);
+  }
+}
+
+async function handlePortalClickTimeout(pending) {
+  await removePendingPortalClick(pending.token);
+  await postJson("/download-agent/fail", {
+    ...pending.file,
+    error: "Portal download did not start within 60 seconds",
+  });
+  notifyDownloadAgentStateUpdated(pending.file.caseKey);
 }
 
 function storageSet(key, value) {

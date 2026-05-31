@@ -32,13 +32,15 @@ function getSampleFiles() {
 
 function renderDownloadRow(fileName) {
   const escapedFileName = escapeHtml(fileName);
-  const downloadUrl = `/downloads/${encodeURIComponent(fileName)}`;
 
   return `<div class="k-hbox mb-2 ng-star-inserted">
   <a kendotooltip class="k-column pl-2 f-size-14 flex-fill w-100 file-name-trunc" title="${escapedFileName}" data-title="">${escapedFileName}</a>
   <div class="k-d-flex k-flex-nowrap k-align-items-center k-justify-content-start" style="min-width: 55px;">
-    <button kendobutton size="small" fillmode="flat" class="cursor-pointer text-fiord p-1 report-detail-download-btn k-button k-button-sm k-rounded-md k-button-flat-base k-button-flat ng-star-inserted" role="button" aria-disabled="false" dir="ltr" data-download-url="${downloadUrl}">
+    <button kendobutton size="small" fillmode="flat" class="cursor-pointer text-fiord p-1 report-detail-download-btn k-button k-button-sm k-rounded-md k-button-flat-base k-button-flat ng-star-inserted" role="button" aria-disabled="false" dir="ltr">
       <span class="k-button-text"><span class="material-icons-outlined"> cloud_download </span></span>
+    </button>
+    <button kendobutton size="small" fillmode="flat" kendotooltip class="p-1 k-button k-button-sm k-rounded-md k-button-flat-base k-button-flat ng-star-inserted" title="Launch VoxView" role="button" aria-disabled="false" dir="ltr">
+      <span class="k-button-text">V</span>
     </button>
   </div>
 </div>`;
@@ -192,13 +194,18 @@ function renderPortalPage() {
     <script>
       document.querySelectorAll(".report-detail-download-btn").forEach((button) => {
         button.addEventListener("click", () => {
+          const row = button.closest(".k-hbox");
+          const fileNameElement = row ? row.querySelector(".file-name-trunc") : null;
+          const fileName = fileNameElement
+            ? fileNameElement.getAttribute("title") || fileNameElement.textContent.trim()
+            : "";
           const icon = button.querySelector(".material-icons-outlined");
           button.disabled = true;
           button.setAttribute("aria-disabled", "true");
           if (icon) {
             icon.textContent = " progress_activity ";
           }
-          window.location.href = button.dataset.downloadUrl;
+          window.location.href = "/downloads/" + encodeURIComponent(fileName);
           window.setTimeout(() => {
             button.disabled = false;
             button.setAttribute("aria-disabled", "false");

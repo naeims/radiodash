@@ -26,6 +26,7 @@ const DA_STATUS = Object.freeze({
   READY: "ready",
   FAILED: "failed",
 });
+const activeDownloadAgentJobs = new Map();
 
 function listTemplates(templateDir = DEFAULT_TEMPLATE_DIR) {
   return fs
@@ -260,10 +261,6 @@ function hasStalePreparedDiskState(fileState) {
     return false;
   }
 
-  if (!pathExists(fileState.launchFilePath)) {
-    return true;
-  }
-
   return diskPaths.some((filePath) => !fs.existsSync(filePath));
 }
 
@@ -406,43 +403,54 @@ function assertInside(rootDir, targetPath) {
   }
 }
 
-function copySourceToManaged(sourceFilePath, destinationDir, fileName) {
+function waitForNextTick() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+async function copySourceToManaged(sourceFilePath, destinationDir, fileName) {
   const safeName = safeFileName(fileName, path.basename(sourceFilePath));
   const destinationPath = path.join(destinationDir, safeName);
 
-  fs.mkdirSync(destinationDir, { recursive: true });
-  fs.copyFileSync(sourceFilePath, destinationPath);
+  await fs.promises.mkdir(destinationDir, { recursive: true });
+  await fs.promises.copyFile(sourceFilePath, destinationPath);
 
   return destinationPath;
 }
 
-function extractZipSafely(zipPath, destinationDir) {
+async function extractZipSafely(zipPath, destinationDir) {
   const zip = new AdmZip(zipPath);
 
-  fs.mkdirSync(destinationDir, { recursive: true });
-  zip.getEntries().forEach((entry) => {
+  await fs.promises.mkdir(destinationDir, { recursive: true });
+
+  for (const [index, entry] of zip.getEntries().entries()) {
     const entryName = entry.entryName.replace(/\\/g, "/");
     const destinationPath = path.resolve(destinationDir, entryName);
 
     assertInside(destinationDir, destinationPath);
 
     if (entry.isDirectory) {
-      fs.mkdirSync(destinationPath, { recursive: true });
-      return;
+      await fs.promises.mkdir(destinationPath, { recursive: true });
+    } else {
+      await fs.promises.mkdir(path.dirname(destinationPath), {
+        recursive: true,
+      });
+      await fs.promises.writeFile(destinationPath, entry.getData());
     }
 
-    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
-    fs.writeFileSync(destinationPath, entry.getData());
-  });
+    if (index > 0 && index % 10 === 0) {
+      await waitForNextTick();
+    }
+  }
 }
 
-function buildAbridgedTree(rootDir) {
+async function buildAbridgedTree(rootDir) {
   const lines = ["."];
   const maxFilesPerDirectory = 10;
 
-  function walk(dir, prefix) {
-    const entries = fs
-      .readdirSync(dir, { withFileTypes: true })
+  async function walk(dir, prefix) {
+    const entries = (
+      await fs.promises.readdir(dir, { withFileTypes: true })
+    )
       .filter((entry) => !entry.name.startsWith("."))
       .sort((a, b) => {
         if (a.isDirectory() && !b.isDirectory()) return -1;
@@ -452,10 +460,10 @@ function buildAbridgedTree(rootDir) {
     const dirs = entries.filter((entry) => entry.isDirectory());
     const files = entries.filter((entry) => entry.isFile());
 
-    dirs.forEach((entry) => {
+    for (const entry of dirs) {
       lines.push(`${prefix}${entry.name}/`);
-      walk(path.join(dir, entry.name), `${prefix}  `);
-    });
+      await walk(path.join(dir, entry.name), `${prefix}  `);
+    }
 
     files.slice(0, maxFilesPerDirectory).forEach((entry) => {
       lines.push(`${prefix}${entry.name}`);
@@ -466,9 +474,11 @@ function buildAbridgedTree(rootDir) {
         `${prefix}... and ${files.length - maxFilesPerDirectory} more files`,
       );
     }
+
+    await waitForNextTick();
   }
 
-  walk(rootDir, "  ");
+  await walk(rootDir, "  ");
 
   return lines.join("\n");
 }
@@ -486,7 +496,7 @@ function parseStrictJsonObject(value) {
 }
 
 async function chooseLaunchFileWithOllama(extractDir) {
-  const tree = buildAbridgedTree(extractDir);
+  const tree = await buildAbridgedTree(extractDir);
   const prompt = `You select the launch file for Invivo dental imaging cases.
 
 Return only strict JSON in this exact shape:
@@ -593,7 +603,7 @@ async function prepareDownloadedFile(file, downloadedFilePath) {
     sourceFilePath,
     fileDir,
   });
-  const managedSourcePath = copySourceToManaged(
+  const managedSourcePath = await copySourceToManaged(
     sourceFilePath,
     originalDir,
     file.fileName || path.basename(sourceFilePath),
@@ -617,7 +627,7 @@ async function prepareDownloadedFile(file, downloadedFilePath) {
     managedSourcePath,
     extractDir,
   });
-  extractZipSafely(managedSourcePath, extractDir);
+  await extractZipSafely(managedSourcePath, extractDir);
 
   const launchFilePath = await chooseLaunchFileWithOllama(extractDir);
 
@@ -626,6 +636,73 @@ async function prepareDownloadedFile(file, downloadedFilePath) {
     launchFilePath,
     launchFileUrl: pathToFileUrl(launchFilePath),
   };
+}
+
+function getDownloadAgentJobKey(file) {
+  return `${file.caseKey}\n${file.fileId}`;
+}
+
+function queueDownloadAgentPreparation(file, downloadedFilePath) {
+  const jobKey = getDownloadAgentJobKey(file);
+
+  if (activeDownloadAgentJobs.has(jobKey)) {
+    console.log("[DA] Preparation job already running", {
+      caseKey: file.caseKey,
+      fileId: file.fileId,
+    });
+    return;
+  }
+
+  console.log("[DA] Queueing server preparation job", {
+    caseKey: file.caseKey,
+    fileId: file.fileId,
+    downloadedFilePath,
+  });
+
+  const job = runDownloadAgentPreparation(file, downloadedFilePath).finally(
+    () => {
+      activeDownloadAgentJobs.delete(jobKey);
+    },
+  );
+
+  activeDownloadAgentJobs.set(jobKey, job);
+}
+
+async function runDownloadAgentPreparation(file, downloadedFilePath) {
+  const state = readCaseState(file.caseKey);
+  const fileState = getOrCreateFileState(state, file);
+
+  try {
+    console.log("[DA] Server preparation started", {
+      caseKey: file.caseKey,
+      fileId: file.fileId,
+      downloadedFilePath,
+    });
+    const prepared = await prepareDownloadedFile(file, downloadedFilePath);
+
+    fileState.status = DA_STATUS.READY;
+    fileState.phase = "ready";
+    fileState.sourceFilePath = normalizeDownloadedPath(downloadedFilePath);
+    fileState.managedFilePath = prepared.managedFilePath;
+    fileState.launchFilePath = prepared.launchFilePath;
+    fileState.launchFileUrl = prepared.launchFileUrl;
+    fileState.error = null;
+    fileState.updatedAt = nowIso();
+
+    writeCaseState(state);
+    console.log("[DA] File ready", {
+      fileId: file.fileId,
+      launchFilePath: prepared.launchFilePath,
+      launchFileUrl: prepared.launchFileUrl,
+    });
+  } catch (error) {
+    console.error("[DA] Preparation failed:", error);
+    fileState.status = DA_STATUS.FAILED;
+    fileState.phase = "failed";
+    fileState.error = error.message;
+    fileState.updatedAt = nowIso();
+    writeCaseState(state);
+  }
 }
 
 function createTemplateListHandler(templateDir = DEFAULT_TEMPLATE_DIR) {
@@ -689,7 +766,7 @@ function createDownloadAgentJobHandler() {
 }
 
 function createDownloadAgentCompleteHandler() {
-  return async (req, res) => {
+  return (req, res) => {
     const file = validateCaseAndFile(req, res);
 
     if (!file) {
@@ -706,39 +783,14 @@ function createDownloadAgentCompleteHandler() {
     fileState.updatedAt = nowIso();
     writeCaseState(state);
 
-    try {
-      console.log("[DA] Browser download completed", {
-        caseKey: file.caseKey,
-        fileId: file.fileId,
-        downloadedFilePath,
-      });
-      const prepared = await prepareDownloadedFile(file, downloadedFilePath);
+    console.log("[DA] Browser download completed; preparation queued", {
+      caseKey: file.caseKey,
+      fileId: file.fileId,
+      downloadedFilePath,
+    });
+    queueDownloadAgentPreparation(file, downloadedFilePath);
 
-      fileState.status = DA_STATUS.READY;
-      fileState.phase = "ready";
-      fileState.sourceFilePath = normalizeDownloadedPath(downloadedFilePath);
-      fileState.managedFilePath = prepared.managedFilePath;
-      fileState.launchFilePath = prepared.launchFilePath;
-      fileState.launchFileUrl = prepared.launchFileUrl;
-      fileState.error = null;
-      fileState.updatedAt = nowIso();
-
-      writeCaseState(state);
-      console.log("[DA] File ready", {
-        fileId: file.fileId,
-        launchFilePath: prepared.launchFilePath,
-        launchFileUrl: prepared.launchFileUrl,
-      });
-      res.json(stateForResponse(state));
-    } catch (error) {
-      console.error("[DA] Preparation failed:", error);
-      fileState.status = DA_STATUS.FAILED;
-      fileState.phase = "failed";
-      fileState.error = error.message;
-      fileState.updatedAt = nowIso();
-      writeCaseState(state);
-      res.status(500).json(stateForResponse(state));
-    }
+    res.json(stateForResponse(state));
   };
 }
 

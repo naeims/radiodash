@@ -218,7 +218,7 @@ function getOrCreateFileState(state, file) {
     fileId: file.fileId,
     fileName: file.fileName,
     downloadUrl: file.downloadUrl,
-    status: DA_STATUS.PREPARING,
+    status: DA_STATUS.NOT_DOWNLOADED,
     phase: "downloading",
     updatedAt: nowIso(),
     ...state.files[file.fileId],
@@ -629,7 +629,7 @@ async function prepareDownloadedFile(file, downloadedFilePath) {
 
   const extension = path.extname(managedSourcePath).toLowerCase();
 
-  if (extension === ".inv") {
+  if (extension === ".inv" || extension === ".dcm") {
     return {
       managedFilePath: managedSourcePath,
       launchFilePath: managedSourcePath,

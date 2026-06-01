@@ -15,9 +15,10 @@ const DA_STATE_DIR =
   process.env.DA_STATE_DIR ||
   path.join(os.tmpdir(), "radiodash-download-agent-state");
 const DA_TEMP_DIR = process.env.DA_TEMP_DIR || null;
-const OLLAMA_COMPLETIONS_URL =
-  process.env.OLLAMA_COMPLETIONS_URL || "http://localhost:11434/v1/completions";
-const OLLAMA_MODEL = "llama3.2";
+const OLLAMA_CHAT_COMPLETIONS_URL =
+  process.env.OLLAMA_CHAT_COMPLETIONS_URL ||
+  "http://localhost:11434/v1/chat/completions";
+const OLLAMA_MODEL = "llama3.2:latest";
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const DA_STATUS = Object.freeze({
@@ -501,6 +502,159 @@ async function buildAbridgedTree(rootDir) {
   return lines.join("\n");
 }
 
+function compareDirectoryEntries(a, b) {
+  if (a.isDirectory() && !b.isDirectory()) return -1;
+  if (!a.isDirectory() && b.isDirectory()) return 1;
+  return a.name.localeCompare(b.name);
+}
+
+function toLlmRelativePath(rootDir, filePath) {
+  return path.relative(rootDir, filePath).replace(/\\/g, "/");
+}
+
+function getExtensionLabel(fileName) {
+  const extension = path.extname(fileName).toLowerCase();
+  return extension || "[no extension]";
+}
+
+function isLikelyLaunchFileName(fileName) {
+  const extension = path.extname(fileName).toLowerCase();
+  const baseName = path.basename(fileName, extension);
+
+  return (
+    extension === ".inv" ||
+    extension === ".dcm" ||
+    /^\d+$/.test(baseName) ||
+    /^i\d+$/i.test(baseName) ||
+    /dicom/i.test(fileName)
+  );
+}
+
+function summarizeFileEntries(files) {
+  const extensionCounts = new Map();
+
+  files.forEach((entry) => {
+    const extension = getExtensionLabel(entry.name);
+    extensionCounts.set(extension, (extensionCounts.get(extension) || 0) + 1);
+  });
+
+  return Array.from(extensionCounts.entries())
+    .sort(([leftExtension], [rightExtension]) =>
+      leftExtension.localeCompare(rightExtension),
+    )
+    .map(([extension, count]) => `${extension}: ${count}`)
+    .join(", ");
+}
+
+function pickRepresentativeFileEntries(files, maxFilesPerDirectory) {
+  const selected = [];
+  const seenNames = new Set();
+
+  function add(entry) {
+    if (!entry || seenNames.has(entry.name)) {
+      return;
+    }
+
+    selected.push(entry);
+    seenNames.add(entry.name);
+  }
+
+  files.filter((entry) => isLikelyLaunchFileName(entry.name)).forEach(add);
+  files.slice(0, maxFilesPerDirectory).forEach(add);
+
+  return selected
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, maxFilesPerDirectory);
+}
+
+async function buildLlmAbridgedTree(rootDir) {
+  const lines = [
+    "The root directory is represented by .",
+    "Only choose a launch file from an exact relativePath value shown below.",
+    "Directory names and file names are JSON-quoted so spaces and punctuation are significant.",
+    "",
+  ];
+  const maxFilesPerDirectory = 12;
+  const maxDirectories = 5;
+  const directories = [];
+
+  async function collect(dir, relativeDir) {
+    const entries = (await fs.promises.readdir(dir, { withFileTypes: true }))
+      .filter((entry) => !entry.name.startsWith("."))
+      .sort(compareDirectoryEntries);
+    const dirs = entries.filter((entry) => entry.isDirectory());
+    const files = entries.filter((entry) => entry.isFile());
+
+    directories.push({
+      dir,
+      relativeDir,
+      dirs,
+      files,
+    });
+
+    for (const entry of dirs) {
+      const childRelativeDir = relativeDir
+        ? `${relativeDir}/${entry.name}`
+        : entry.name;
+
+      await collect(path.join(dir, entry.name), childRelativeDir);
+    }
+
+    await waitForNextTick();
+  }
+
+  await collect(rootDir, "");
+
+  directories.sort((a, b) => {
+    const fileCountDifference = b.files.length - a.files.length;
+
+    if (fileCountDifference !== 0) {
+      return fileCountDifference;
+    }
+
+    return (a.relativeDir || ".").localeCompare(b.relativeDir || ".");
+  });
+
+  for (const { dir, relativeDir, dirs, files } of directories.slice(
+    0,
+    maxDirectories,
+  )) {
+    const displayDir = relativeDir || ".";
+
+    lines.push(`Directory ${JSON.stringify(displayDir)}`);
+    lines.push(`- subdirectoryCount: ${dirs.length}`);
+    lines.push(`- fileCount: ${files.length}`);
+
+    if (files.length > 0) {
+      lines.push(`- fileTypes: ${summarizeFileEntries(files)}`);
+      lines.push("- files:");
+
+      for (const entry of pickRepresentativeFileEntries(
+        files,
+        maxFilesPerDirectory,
+      )) {
+        const absoluteFilePath = path.join(dir, entry.name);
+        const relativePath = toLlmRelativePath(rootDir, absoluteFilePath);
+        const stats = await fs.promises.stat(absoluteFilePath);
+
+        lines.push(
+          `  - relativePath: ${JSON.stringify(relativePath)} | sizeBytes: ${stats.size}`,
+        );
+      }
+
+      if (files.length > maxFilesPerDirectory) {
+        lines.push(
+          `  - omittedFilesInThisDirectory: ${files.length - maxFilesPerDirectory}`,
+        );
+      }
+    }
+
+    lines.push("");
+  }
+
+  return lines.join("\n").trim();
+}
+
 function parseStrictJsonObject(value) {
   const text = String(value || "").trim();
   const jsonStart = text.indexOf("{");
@@ -514,33 +668,39 @@ function parseStrictJsonObject(value) {
 }
 
 async function chooseLaunchFileWithOllama(extractDir) {
-  const tree = await buildAbridgedTree(extractDir);
-  const prompt = `You select the launch file for Invivo dental imaging cases.
+  const tree = await buildLlmAbridgedTree(extractDir);
+  const systemPrompt = `You select the launch file for Invivo dental imaging cases.
 
 Return only strict JSON in this exact shape:
 {"path":"relative/path/to/launch-file"}
 
-Choose the single most likely file the radiologist should open. The path must be relative to the root shown below. Do not include markdown or explanations.
-You must correctly handle directory structures that have spaces in their names and always generate a valid path.
-Take extra care not to drop any space characters from the directory structure path names. For example, if a directory name is "A. BC 2", make sure your response uses that string exactly, and NOT "A.BC 2" where the space after the period is dropped erroneously.
+- Choose the single most likely FILE the radiologist should open.
+- Do not choose a directory, always choose a FILE.
+- The most likely launch file is a numbered file that exists next to a lot of other numbered files. These are DICOM slices.
+- The path must exactly match one relativePath value for a FILE from the given directory tree. 
+`;
 
-Directory tree:
+  const userMessage = `Directory tree:
 ${tree}`;
   const ollamaRequest = {
     model: OLLAMA_MODEL,
-    prompt,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ],
     temperature: 0,
     max_tokens: 200,
     stream: false,
   };
 
   console.log("[DA][Ollama] Request", {
-    url: OLLAMA_COMPLETIONS_URL,
+    url: OLLAMA_CHAT_COMPLETIONS_URL,
     model: OLLAMA_MODEL,
     extractDir,
   });
-  console.log("[DA][Ollama] Prompt\n" + prompt);
-  const response = await fetch(OLLAMA_COMPLETIONS_URL, {
+  console.log("[DA][Ollama] System prompt\n" + systemPrompt);
+  console.log("[DA][Ollama] User message\n" + userMessage);
+  const response = await fetch(OLLAMA_CHAT_COMPLETIONS_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -559,7 +719,7 @@ ${tree}`;
 
   const body = await response.json();
   console.log("[DA][Ollama] Response body", body);
-  const text = body?.choices?.[0]?.text;
+  const text = body?.choices?.[0]?.message?.content ?? body?.choices?.[0]?.text;
   console.log("[DA][Ollama] Completion text", text);
   const result = parseStrictJsonObject(text);
   console.log("[DA][Ollama] Parsed JSON", result);

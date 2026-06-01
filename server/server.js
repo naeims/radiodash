@@ -462,6 +462,78 @@ async function extractZipSafely(zipPath, destinationDir) {
   }
 }
 
+async function listZipFiles(rootDir) {
+  const zipFiles = [];
+
+  async function walk(dir) {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const entryPath = path.resolve(dir, entry.name);
+      assertInside(rootDir, entryPath);
+
+      if (entry.isDirectory()) {
+        await walk(entryPath);
+      } else if (
+        entry.isFile() &&
+        path.extname(entry.name).toLowerCase() === ".zip"
+      ) {
+        zipFiles.push(entryPath);
+      }
+    }
+  }
+
+  await walk(rootDir);
+
+  return zipFiles;
+}
+
+async function extractNestedZipsInPlace(rootDir) {
+  let depth = 0;
+  const maxDepth = 10;
+
+  while (true) {
+    const nestedZipPaths = await listZipFiles(rootDir);
+
+    if (nestedZipPaths.length === 0) {
+      return;
+    }
+
+    if (depth >= maxDepth) {
+      throw new Error(`Nested zip extraction exceeded ${maxDepth} levels`);
+    }
+
+    depth += 1;
+
+    console.log("[DA] Found nested zip files after extraction", {
+      rootDir,
+      depth,
+      count: nestedZipPaths.length,
+      nestedZipPaths,
+    });
+
+    for (const nestedZipPath of nestedZipPaths) {
+      const destinationDir = path.join(
+        path.dirname(nestedZipPath),
+        path.basename(nestedZipPath, path.extname(nestedZipPath)),
+      );
+      assertInside(rootDir, destinationDir);
+
+      console.log("[DA] Extracting nested zip in place", {
+        nestedZipPath,
+        destinationDir,
+      });
+
+      await extractZipSafely(nestedZipPath, destinationDir);
+      await fs.promises.unlink(nestedZipPath);
+
+      console.log("[DA] Removed nested zip after extraction", {
+        nestedZipPath,
+      });
+    }
+  }
+}
+
 async function buildAbridgedTree(rootDir) {
   const lines = ["."];
   const maxFilesPerDirectory = 10;
@@ -806,6 +878,7 @@ async function prepareDownloadedFile(file, downloadedFilePath) {
     extractDir,
   });
   await extractZipSafely(managedSourcePath, extractDir);
+  await extractNestedZipsInPlace(extractDir);
 
   const launchFilePath = await chooseLaunchFileWithOllama(extractDir);
 

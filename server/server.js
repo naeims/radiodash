@@ -18,14 +18,17 @@ const OLLAMA_CHAT_COMPLETIONS_URL =
 const OLLAMA_MODEL = "llama3.2:latest";
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const IS_WSL =
+  process.platform === "linux" &&
+  fs.existsSync("/proc/version") &&
+  fs.readFileSync("/proc/version", "utf8").toLowerCase().includes("microsoft");
 const DA_STATUS = Object.freeze({
   NOT_DOWNLOADED: "not_downloaded",
   PREPARING: "preparing",
   READY: "ready",
   FAILED: "failed",
 });
-const activeDownloadAgentJobs = new Map();
-const activeDownloadAgentPhases = new Map();
+const activeDownloadAgentWork = new Map();
 
 function listTemplates(templateDir = DEFAULT_TEMPLATE_DIR) {
   return fs
@@ -86,14 +89,6 @@ function safeFileName(fileName, fallback = "download") {
   return cleaned || fallback;
 }
 
-function isWsl() {
-  return (
-    process.platform === "linux" &&
-    fs.existsSync("/proc/version") &&
-    fs.readFileSync("/proc/version", "utf8").toLowerCase().includes("microsoft")
-  );
-}
-
 function windowsPathToWslPath(filePath) {
   const match = String(filePath).match(/^([a-zA-Z]):[\\/](.*)$/);
   if (!match) {
@@ -120,7 +115,7 @@ function normalizeDownloadedPath(filePath) {
     return null;
   }
 
-  if (isWsl()) {
+  if (IS_WSL) {
     return windowsPathToWslPath(filePath.trim());
   }
 
@@ -150,22 +145,31 @@ function getWslUsernameCandidates() {
   );
 }
 
-function listWslWindowsUserTempDirs() {
-  if (!isWsl() || !fs.existsSync("/mnt")) {
+function listWslWindowsTempRoots(sourceFilePath = "") {
+  if (!IS_WSL) {
     return [];
   }
 
   const tempDirs = [];
+  const sourceTemp = sourceFilePath
+    ? getWindowsUserTempFromWslPath(sourceFilePath)
+    : null;
 
-  for (const driveName of ["c", "C"]) {
-    const usersDir = path.join("/mnt", driveName.toLowerCase(), "Users");
+  if (sourceTemp) {
+    tempDirs.push(sourceTemp);
+  }
 
-    for (const username of getWslUsernameCandidates()) {
-      const tempDir = path.join(usersDir, username, "AppData/Local/Temp");
+  if (!fs.existsSync("/mnt")) {
+    return uniquePaths(tempDirs);
+  }
 
-      if (fs.existsSync(path.dirname(tempDir))) {
-        tempDirs.push(tempDir);
-      }
+  const usersDir = path.join("/mnt", "c", "Users");
+
+  for (const username of getWslUsernameCandidates()) {
+    const tempDir = path.join(usersDir, username, "AppData/Local/Temp");
+
+    if (fs.existsSync(path.dirname(tempDir))) {
+      tempDirs.push(tempDir);
     }
   }
 
@@ -205,17 +209,11 @@ function getManagedTempRoot(sourceFilePath = "") {
     return DA_TEMP_DIR;
   }
 
-  if (isWsl()) {
-    const windowsTemp = getWindowsUserTempFromWslPath(sourceFilePath);
+  if (IS_WSL) {
+    const windowsTemp = listWslWindowsTempRoots(sourceFilePath)[0];
 
     if (windowsTemp) {
       return path.join(windowsTemp, "radiodash-download-agent");
-    }
-
-    const defaultWindowsTemp = listWslWindowsUserTempDirs()[0];
-
-    if (defaultWindowsTemp) {
-      return path.join(defaultWindowsTemp, "radiodash-download-agent");
     }
 
     throw new Error(
@@ -307,7 +305,7 @@ function mergeCaseState(target, incoming) {
 }
 
 function listWslWindowsManagedTempRoots() {
-  return listWslWindowsUserTempDirs().map((tempDir) =>
+  return listWslWindowsTempRoots().map((tempDir) =>
     path.join(tempDir, "radiodash-download-agent"),
   );
 }
@@ -407,20 +405,23 @@ function getDownloadAgentJobKey(file) {
   return `${file.caseKey}\n${file.fileId}`;
 }
 
-function setActiveDownloadAgentPhase(file, phase) {
-  activeDownloadAgentPhases.set(getDownloadAgentJobKey(file), phase);
+function setActiveDownloadAgentWork(file, phase, job = null) {
+  const jobKey = getDownloadAgentJobKey(file);
+  const current = activeDownloadAgentWork.get(jobKey) || {};
+
+  activeDownloadAgentWork.set(jobKey, {
+    ...current,
+    phase,
+    job: job || current.job || null,
+  });
 }
 
-function clearActiveDownloadAgentPhase(file) {
-  activeDownloadAgentPhases.delete(getDownloadAgentJobKey(file));
+function clearActiveDownloadAgentWork(file) {
+  activeDownloadAgentWork.delete(getDownloadAgentJobKey(file));
 }
 
 function hasActiveDownloadAgentWork(caseKey, fileId) {
-  const jobKey = `${caseKey}\n${fileId}`;
-
-  return (
-    activeDownloadAgentJobs.has(jobKey) || activeDownloadAgentPhases.has(jobKey)
-  );
+  return activeDownloadAgentWork.has(`${caseKey}\n${fileId}`);
 }
 
 function validateCaseAndFile(req, res) {
@@ -625,7 +626,7 @@ async function openFileWithOs(filePath) {
 
   console.log("[DA] Opening launch file with OS", { filePath });
 
-  if (isWsl()) {
+  if (IS_WSL) {
     const windowsPath = wslPathToWindowsPath(filePath);
     await spawnDetached("powershell.exe", [
       "-NoProfile",
@@ -795,44 +796,6 @@ async function extractNestedZipsInPlace(rootDir) {
       });
     }
   }
-}
-
-async function buildAbridgedTree(rootDir) {
-  const lines = ["."];
-  const maxFilesPerDirectory = 10;
-
-  async function walk(dir, prefix) {
-    const entries = (await fs.promises.readdir(dir, { withFileTypes: true }))
-      .filter((entry) => !entry.name.startsWith("."))
-      .sort((a, b) => {
-        if (a.isDirectory() && !b.isDirectory()) return -1;
-        if (!a.isDirectory() && b.isDirectory()) return 1;
-        return a.name.localeCompare(b.name);
-      });
-    const dirs = entries.filter((entry) => entry.isDirectory());
-    const files = entries.filter((entry) => entry.isFile());
-
-    for (const entry of dirs) {
-      lines.push(`${prefix}${entry.name}/`);
-      await walk(path.join(dir, entry.name), `${prefix}  `);
-    }
-
-    files.slice(0, maxFilesPerDirectory).forEach((entry) => {
-      lines.push(`${prefix}${entry.name}`);
-    });
-
-    if (files.length > maxFilesPerDirectory) {
-      lines.push(
-        `${prefix}... and ${files.length - maxFilesPerDirectory} more files`,
-      );
-    }
-
-    await waitForNextTick();
-  }
-
-  await walk(rootDir, "  ");
-
-  return lines.join("\n");
 }
 
 function compareDirectoryEntries(a, b) {
@@ -1208,8 +1171,9 @@ async function promotePreparedWorkDir(workDir, fileDir) {
 
 function queueDownloadAgentPreparation(file, downloadedFilePath, managedRoot) {
   const jobKey = getDownloadAgentJobKey(file);
+  const currentWork = activeDownloadAgentWork.get(jobKey);
 
-  if (activeDownloadAgentJobs.has(jobKey)) {
+  if (currentWork?.job) {
     console.log("[DA] Preparation job already running", {
       caseKey: file.caseKey,
       fileId: file.fileId,
@@ -1228,10 +1192,12 @@ function queueDownloadAgentPreparation(file, downloadedFilePath, managedRoot) {
     downloadedFilePath,
     managedRoot,
   ).finally(() => {
-    activeDownloadAgentJobs.delete(jobKey);
+    if (activeDownloadAgentWork.get(jobKey)?.job === job) {
+      activeDownloadAgentWork.delete(jobKey);
+    }
   });
 
-  activeDownloadAgentJobs.set(jobKey, job);
+  setActiveDownloadAgentWork(file, currentWork?.phase || "unpacking", job);
 }
 
 async function runDownloadAgentPreparation(
@@ -1274,7 +1240,7 @@ async function runDownloadAgentPreparation(
     fileState.updatedAt = nowIso();
     writeCaseState(state);
   } finally {
-    clearActiveDownloadAgentPhase(file);
+    clearActiveDownloadAgentWork(file);
   }
 }
 
@@ -1324,7 +1290,7 @@ function createDownloadAgentJobHandler() {
     }
 
     console.log("[DA] Job started", file);
-    setActiveDownloadAgentPhase(file, "downloading");
+    setActiveDownloadAgentWork(file, "downloading");
     const state = readCaseState(file.caseKey);
     const fileState = getOrCreateFileState(state, file);
 
@@ -1350,7 +1316,7 @@ function createDownloadAgentCompleteHandler() {
     const { downloadedFilePath } = req.body || {};
     const sourceFilePath = normalizeDownloadedPath(downloadedFilePath);
     const managedRoot = getManagedTempRoot(sourceFilePath || "");
-    setActiveDownloadAgentPhase(file, "unpacking");
+    setActiveDownloadAgentWork(file, "unpacking");
     const state = readCaseState(file.caseKey, managedRoot);
     const fileState = getOrCreateFileState(state, file);
 
@@ -1381,7 +1347,7 @@ function createDownloadAgentFailHandler() {
 
     const state = readCaseState(file.caseKey);
     const fileState = getOrCreateFileState(state, file);
-    clearActiveDownloadAgentPhase(file);
+    clearActiveDownloadAgentWork(file);
 
     console.log("[DA] Browser download failed", {
       caseKey: file.caseKey,
@@ -1475,13 +1441,6 @@ if (require.main === module) {
 module.exports = {
   DOCX_MIME,
   createApp,
-  createDocumentGenerationHandler,
-  createDownloadAgentCompleteHandler,
-  createDownloadAgentFailHandler,
-  createDownloadAgentJobHandler,
-  createDownloadAgentOpenHandler,
-  createDownloadAgentStateHandler,
-  createTemplateListHandler,
   listTemplates,
   renderDocument,
   resolveTemplatePath,

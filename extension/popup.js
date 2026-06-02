@@ -26,64 +26,88 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-function loadTemplates() {
-  fetch(`${SERVER_BASE_URL}/templates`)
-    .then((response) => response.json())
-    .then((templates) => {
-      const templateButtons = document.getElementById("template-buttons");
-      templateButtons.textContent = "";
+function sendRuntimeMessage(message) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
 
-      templates.forEach((template) => {
-        const button = document.createElement("button");
-        button.textContent = template;
-        button.addEventListener("click", () => {
-          chrome.runtime.sendMessage(
-            { action: "generate_document", template: template },
-            (response) => {
-              console.log("Response from background:", response);
-            },
-          );
-        });
-        templateButtons.appendChild(button);
-      });
-    })
-    .catch((error) => {
-      console.error("Error fetching templates:", error);
+      resolve(response);
     });
+  });
 }
 
-function loadDownloadAgentFiles(options = {}) {
+async function loadTemplates() {
+  try {
+    const response = await fetch(`${SERVER_BASE_URL}/templates`);
+    const templates = await response.json();
+    const templateButtons = document.getElementById("template-buttons");
+
+    templateButtons.textContent = "";
+    templates.forEach((template) => {
+      const button = document.createElement("button");
+
+      button.textContent = template;
+      button.addEventListener("click", async () => {
+        try {
+          const response = await sendRuntimeMessage({
+            action: "generate_document",
+            template,
+          });
+
+          console.log("Response from background:", response);
+        } catch (error) {
+          console.error("Error generating document:", error);
+        }
+      });
+      templateButtons.appendChild(button);
+    });
+  } catch (error) {
+    console.error("Error fetching templates:", error);
+  }
+}
+
+async function loadDownloadAgentFiles(options = {}) {
   const { showLoading = true } = options;
 
   if (showLoading) {
     setDownloadAgentStatus("Loading");
   }
 
-  chrome.runtime.sendMessage(
-    { action: "get_download_agent_files" },
-    (payload) => {
-      if (chrome.runtime.lastError) {
-        console.error("[DA] Error loading files:", chrome.runtime.lastError);
-        setDownloadAgentStatus("Unavailable");
-        renderKnownDownloadAgentFallback();
-        return;
+  try {
+    const payload = await sendRuntimeMessage({
+      action: "get_download_agent_files",
+    });
+
+    if (!payload?.ok) {
+      console.error("[DA] Error loading files:", payload?.error);
+      setDownloadAgentStatus(payload?.error || "Unavailable");
+      renderDownloadAgentFiles(currentDownloadAgentPayload?.files || []);
+
+      if (currentDownloadAgentPayload) {
+        scheduleDownloadAgentPolling(currentDownloadAgentPayload.files);
       }
 
-      if (!payload?.ok) {
-        console.error("[DA] Error loading files:", payload?.error);
-        setDownloadAgentStatus(payload?.error || "Unavailable");
-        renderKnownDownloadAgentFallback();
-        return;
-      }
+      return;
+    }
 
-      currentDownloadAgentPayload = payload;
-      setDownloadAgentStatus(
-        payload.files.length === 1 ? "1 file" : `${payload.files.length} files`,
-      );
-      renderDownloadAgentFiles(payload.files);
-      scheduleDownloadAgentPolling(payload.files);
-    },
-  );
+    currentDownloadAgentPayload = payload;
+    setDownloadAgentStatus(
+      payload.files.length === 1 ? "1 file" : `${payload.files.length} files`,
+    );
+    renderDownloadAgentFiles(payload.files);
+    scheduleDownloadAgentPolling(payload.files);
+  } catch (error) {
+    console.error("[DA] Error loading files:", error);
+    setDownloadAgentStatus("Unavailable");
+    renderDownloadAgentFiles(currentDownloadAgentPayload?.files || []);
+
+    if (currentDownloadAgentPayload) {
+      scheduleDownloadAgentPolling(currentDownloadAgentPayload.files);
+    }
+  }
 }
 
 function setDownloadAgentStatus(text) {
@@ -129,16 +153,6 @@ function renderDownloadAgentFiles(files) {
   });
 }
 
-function renderKnownDownloadAgentFallback() {
-  if (currentDownloadAgentPayload) {
-    renderDownloadAgentFiles(currentDownloadAgentPayload.files);
-    scheduleDownloadAgentPolling(currentDownloadAgentPayload.files);
-    return;
-  }
-
-  renderDownloadAgentFiles([]);
-}
-
 function scheduleDownloadAgentPolling(files) {
   if (downloadAgentPollTimer) {
     clearTimeout(downloadAgentPollTimer);
@@ -158,29 +172,22 @@ function scheduleDownloadAgentPolling(files) {
 function configureActionButton(button, file) {
   if (file.status === "ready") {
     button.textContent = "View";
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       console.log("[DA] Opening launch file through server", file);
-      chrome.runtime.sendMessage(
-        {
+      try {
+        const response = await sendRuntimeMessage({
           action: "view_download_agent_file",
           file,
-        },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            console.error(
-              "[DA] View message failed:",
-              chrome.runtime.lastError,
-            );
-            loadDownloadAgentFiles();
-            return;
-          }
+        });
 
-          if (!response?.ok) {
-            console.error("[DA] View failed:", response?.error);
-            loadDownloadAgentFiles();
-          }
-        },
-      );
+        if (!response?.ok) {
+          console.error("[DA] View failed:", response?.error);
+          loadDownloadAgentFiles();
+        }
+      } catch (error) {
+        console.error("[DA] View message failed:", error);
+        loadDownloadAgentFiles();
+      }
     });
     return;
   }
@@ -198,28 +205,24 @@ function configureActionButton(button, file) {
   }
 
   button.textContent = file.status === "failed" ? "Retry" : "Prepare";
-  button.addEventListener("click", () => {
+  button.addEventListener("click", async () => {
     console.log("[DA] Prepare requested", file);
     button.textContent = "Preparing";
     button.disabled = true;
-    chrome.runtime.sendMessage(
-      { action: "prepare_download_agent_file", file },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.error(
-            "[DA] Prepare message failed:",
-            chrome.runtime.lastError,
-          );
-          loadDownloadAgentFiles();
-          return;
-        }
 
-        if (!response?.ok) {
-          console.error("[DA] Prepare failed:", response?.error);
-        }
+    try {
+      const response = await sendRuntimeMessage({
+        action: "prepare_download_agent_file",
+        file,
+      });
 
-        loadDownloadAgentFiles();
-      },
-    );
+      if (!response?.ok) {
+        console.error("[DA] Prepare failed:", response?.error);
+      }
+    } catch (error) {
+      console.error("[DA] Prepare message failed:", error);
+    } finally {
+      loadDownloadAgentFiles();
+    }
   });
 }

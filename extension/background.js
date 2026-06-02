@@ -6,40 +6,25 @@ const PORTAL_CLICK_TIMEOUT_MS = 60000;
 const portalClickTimeouts = new Map();
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === "generate_document") {
-    handleGenerateDocument(request, sendResponse);
-    return true;
+  const handlers = {
+    generate_document: () => handleGenerateDocument(request),
+    get_download_agent_files: () => getDownloadAgentFiles(),
+    prepare_download_agent_file: () => prepareDownloadAgentFile(request.file),
+    view_download_agent_file: () => viewDownloadAgentFile(request.file),
+  };
+  const handler = handlers[request.action];
+
+  if (!handler) {
+    return false;
   }
 
-  if (request.action === "get_download_agent_files") {
-    getDownloadAgentFiles()
-      .then(sendResponse)
-      .catch((error) => {
-        console.error("[DA] Failed to get files:", error);
-        sendResponse({ ok: false, error: error.message });
-      });
-    return true;
-  }
-
-  if (request.action === "prepare_download_agent_file") {
-    prepareDownloadAgentFile(request.file)
-      .then(sendResponse)
-      .catch((error) => {
-        console.error("[DA] Failed to prepare file:", error);
-        sendResponse({ ok: false, error: error.message });
-      });
-    return true;
-  }
-
-  if (request.action === "view_download_agent_file") {
-    viewDownloadAgentFile(request.file)
-      .then(sendResponse)
-      .catch((error) => {
-        console.error("[DA] Failed to open prepared file:", error);
-        sendResponse({ ok: false, error: error.message });
-      });
-    return true;
-  }
+  handler()
+    .then(sendResponse)
+    .catch((error) => {
+      console.error(`[DA] Failed to handle ${request.action}:`, error);
+      sendResponse({ ok: false, error: error.message });
+    });
+  return true;
 });
 
 chrome.downloads.onChanged.addListener((delta) => {
@@ -58,42 +43,26 @@ chrome.downloads.onCreated.addListener((downloadItem) => {
   });
 });
 
-function handleGenerateDocument(request, sendResponse) {
+async function handleGenerateDocument(request) {
   console.log(
     "Received generate_document action with template:",
     request.template,
   );
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (tabs.length > 0) {
-      let activeTab = tabs[0];
-      let activeTabId = activeTab.id;
-      let activeTabUrl = activeTab.url;
+  const activeTab = await getActiveTab();
 
-      console.log("Active tab URL:", activeTabUrl);
-      chrome.scripting.executeScript(
-        {
-          target: { tabId: activeTabId },
-          function: collectAndSendData,
-          args: [activeTabUrl, request.template],
-        },
-        (results) => {
-          if (chrome.runtime.lastError) {
-            console.error("Script injection error:", chrome.runtime.lastError);
-            sendResponse({
-              ok: false,
-              error: chrome.runtime.lastError.message,
-            });
-          } else {
-            console.log("Script injected successfully:", results);
-            sendResponse({ ok: true });
-          }
-        },
-      );
-    } else {
-      console.error("No active tab found");
-      sendResponse({ ok: false, error: "No active tab found" });
-    }
-  });
+  if (!activeTab?.id || !activeTab?.url) {
+    throw new Error("No active tab found");
+  }
+
+  console.log("Active tab URL:", activeTab.url);
+  const results = await executeScript(activeTab.id, collectAndSendData, [
+    activeTab.url,
+    request.template,
+    SERVER_BASE_URL,
+  ]);
+
+  console.log("Script injected successfully:", results);
+  return { ok: true };
 }
 
 async function getDownloadAgentFiles() {
@@ -721,7 +690,7 @@ async function postJson(pathAndQuery, body) {
   return payload;
 }
 
-function collectAndSendData(pageUrl, template) {
+async function collectAndSendData(pageUrl, template, serverBaseUrl) {
   console.log("collectData function called with URL:", pageUrl);
 
   function extractData(pageUrl) {
@@ -742,30 +711,15 @@ function collectAndSendData(pageUrl, template) {
     console.log("Parsed PID:", pid);
     console.log("Parsed SID:", sid);
 
-    const getDetailValue = (labelText) => {
-      const detailLabel = Array.from(
-        document.querySelectorAll("div.detail-label"),
-      ).find((div) => div.textContent.trim() === labelText);
-      if (detailLabel) {
-        const detailValue = detailLabel.nextElementSibling;
-        if (detailValue && detailValue.classList.contains("detail-value")) {
-          return detailValue.textContent.trim();
-        }
-      }
-      return "N/A";
-    };
-
-    const getLinkValue = (labelText) => {
+    const getLabeledValue = (labelText, valueClass) => {
       const label = Array.from(
         document.querySelectorAll("div.detail-label"),
       ).find((div) => div.textContent.trim() === labelText);
-      if (label) {
-        const valueElement = label.nextElementSibling;
-        if (valueElement && valueElement.classList.contains("k-link")) {
-          return valueElement.textContent.trim();
-        }
-      }
-      return "N/A";
+      const valueElement = label?.nextElementSibling;
+
+      return valueElement?.classList.contains(valueClass)
+        ? valueElement.textContent.trim()
+        : "N/A";
     };
 
     const getPatientName = () => {
@@ -829,18 +783,18 @@ function collectAndSendData(pageUrl, template) {
 
     return {
       page_url: pageUrl,
-      pid: pid,
-      sid: sid,
+      pid,
+      sid,
       patient_name: getPatientName(),
-      patient_dob: getDetailValue("DOB:"),
-      patient_age: getDetailValue("Age:"),
-      patient_gender: getDetailValue("Sex:"),
+      patient_dob: getLabeledValue("DOB:", "detail-value"),
+      patient_age: getLabeledValue("Age:", "detail-value"),
+      patient_gender: getLabeledValue("Sex:", "detail-value"),
       study_purpose: getStudyPurpose(),
       clinical_notes: getClinicalNotes(),
       report_date: formatReportDate(),
       scan_date: "!",
-      requesting_doctor: getLinkValue("Primary Dentist:"),
-      submitting_group: getLinkValue("Practice Name:"),
+      requesting_doctor: getLabeledValue("Primary Dentist:", "k-link"),
+      submitting_group: getLabeledValue("Practice Name:", "k-link"),
       utc_time: utcTime,
     };
   }
@@ -851,31 +805,28 @@ function collectAndSendData(pageUrl, template) {
   const patientNameForFile = data.patient_name.replace(/\s+/g, "_");
   const fileName = `RadReport_${patientNameForFile}_${data.utc_time}_MA.docx`;
 
-  fetch("http://localhost:5000/generate_document", {
+  const response = await fetch(`${serverBaseUrl}/generate_document`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ template, data }),
-  })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}`);
-      }
+  });
 
-      return response.blob();
-    })
-    .then((blob) => {
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    })
-    .catch((error) => {
-      console.error("Error:", error);
-    });
+  if (!response.ok) {
+    throw new Error(`Server returned ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+
+  return { ok: true };
 }

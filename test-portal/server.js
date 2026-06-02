@@ -23,10 +23,13 @@ function getSampleFiles() {
 
   return fs
     .readdirSync(FILES_DIR, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        !entry.name.startsWith(".") &&
+        !entry.name.endsWith(":Zone.Identifier"),
+    )
     .map((entry) => entry.name)
-    .filter((fileName) => !fileName.startsWith("."))
-    .filter((fileName) => !fileName.endsWith(":Zone.Identifier"))
     .sort((a, b) => a.localeCompare(b));
 }
 

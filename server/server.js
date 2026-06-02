@@ -11,9 +11,6 @@ const Docxtemplater = require("docxtemplater");
 
 const DEFAULT_PORT = Number(process.env.PORT) || 5000;
 const DEFAULT_TEMPLATE_DIR = path.resolve(__dirname, "templates");
-const DA_STATE_DIR =
-  process.env.DA_STATE_DIR ||
-  path.join(os.tmpdir(), "radiodash-download-agent-state");
 const DA_TEMP_DIR = process.env.DA_TEMP_DIR || null;
 const OLLAMA_CHAT_COMPLETIONS_URL =
   process.env.OLLAMA_CHAT_COMPLETIONS_URL ||
@@ -28,6 +25,7 @@ const DA_STATUS = Object.freeze({
   FAILED: "failed",
 });
 const activeDownloadAgentJobs = new Map();
+const activeDownloadAgentPhases = new Map();
 
 function listTemplates(templateDir = DEFAULT_TEMPLATE_DIR) {
   return fs
@@ -140,6 +138,68 @@ function getWindowsUserTempFromWslPath(filePath) {
   return `/mnt/${match[1].toLowerCase()}/Users/${match[2]}/AppData/Local/Temp`;
 }
 
+function getWslUsernameCandidates() {
+  return Array.from(
+    new Set(
+      [
+        process.env.USER,
+        process.env.LOGNAME,
+        process.env.HOME ? path.basename(process.env.HOME) : null,
+      ].filter((value) => typeof value === "string" && value.trim() !== ""),
+    ),
+  );
+}
+
+function listWslWindowsUserTempDirs() {
+  if (!isWsl() || !fs.existsSync("/mnt")) {
+    return [];
+  }
+
+  const tempDirs = [];
+
+  for (const driveName of ["c", "C"]) {
+    const usersDir = path.join("/mnt", driveName.toLowerCase(), "Users");
+
+    for (const username of getWslUsernameCandidates()) {
+      const tempDir = path.join(usersDir, username, "AppData/Local/Temp");
+
+      if (fs.existsSync(path.dirname(tempDir))) {
+        tempDirs.push(tempDir);
+      }
+    }
+  }
+
+  try {
+    for (const drive of fs.readdirSync("/mnt", { withFileTypes: true })) {
+      if (!drive.isDirectory()) {
+        continue;
+      }
+
+      const usersDir = path.join("/mnt", drive.name, "Users");
+
+      if (!fs.existsSync(usersDir)) {
+        continue;
+      }
+
+      for (const user of fs.readdirSync(usersDir, { withFileTypes: true })) {
+        if (!user.isDirectory()) {
+          continue;
+        }
+
+        const tempDir = path.join(usersDir, user.name, "AppData/Local/Temp");
+
+        if (fs.existsSync(tempDir)) {
+          tempDirs.push(tempDir);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("[DA] Could not scan WSL Windows temp roots:", error);
+  }
+
+  return uniquePaths(tempDirs);
+}
+
 function getManagedTempRoot(sourceFilePath = "") {
   if (DA_TEMP_DIR) {
     return DA_TEMP_DIR;
@@ -151,40 +211,216 @@ function getManagedTempRoot(sourceFilePath = "") {
     if (windowsTemp) {
       return path.join(windowsTemp, "radiodash-download-agent");
     }
+
+    const defaultWindowsTemp = listWslWindowsUserTempDirs()[0];
+
+    if (defaultWindowsTemp) {
+      return path.join(defaultWindowsTemp, "radiodash-download-agent");
+    }
+
+    throw new Error(
+      "Could not resolve Windows AppData Local Temp under WSL; set DA_TEMP_DIR",
+    );
   }
 
   return path.join(os.tmpdir(), "radiodash-download-agent");
 }
 
-function getCaseStatePath(caseKey) {
+function getCaseDir(managedRoot, caseKey) {
   return path.join(
-    DA_STATE_DIR,
+    managedRoot,
     "cases",
     `${safeSegment(caseKey, "case")}-${hashKey(caseKey).slice(0, 12)}`,
-    "state.json",
   );
 }
 
-function readCaseState(caseKey) {
-  const statePath = getCaseStatePath(caseKey);
-
-  if (!fs.existsSync(statePath)) {
-    return {
-      caseKey,
-      files: {},
-    };
-  }
-
-  return JSON.parse(fs.readFileSync(statePath, "utf8"));
+function getCaseStatePath(managedRoot, caseKey) {
+  return path.join(getCaseDir(managedRoot, caseKey), "state.json");
 }
 
-function writeCaseState(state) {
-  const statePath = getCaseStatePath(state.caseKey);
+function createEmptyCaseState(caseKey) {
+  return {
+    caseKey,
+    files: {},
+  };
+}
 
+function attachStateRoot(state, managedRoot) {
+  Object.defineProperty(state, "__managedRoot", {
+    value: managedRoot,
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  });
+
+  return state;
+}
+
+function readJsonFile(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function getStateUpdatedTime(state) {
+  return Math.max(
+    0,
+    ...Object.values(state.files || {}).map((fileState) => {
+      const time = Date.parse(fileState.updatedAt || "");
+      return Number.isFinite(time) ? time : 0;
+    }),
+  );
+}
+
+function shouldUseIncomingFileState(currentFileState, incomingFileState) {
+  if (!currentFileState) {
+    return true;
+  }
+
+  const currentTime = Date.parse(currentFileState.updatedAt || "");
+  const incomingTime = Date.parse(incomingFileState.updatedAt || "");
+
+  if (!Number.isFinite(currentTime)) {
+    return true;
+  }
+
+  if (!Number.isFinite(incomingTime)) {
+    return false;
+  }
+
+  return incomingTime >= currentTime;
+}
+
+function mergeCaseState(target, incoming) {
+  if (!incoming?.files) {
+    return target;
+  }
+
+  Object.entries(incoming.files).forEach(([fileId, incomingFileState]) => {
+    if (shouldUseIncomingFileState(target.files[fileId], incomingFileState)) {
+      target.files[fileId] = {
+        ...incomingFileState,
+        fileId: incomingFileState.fileId || fileId,
+      };
+    }
+  });
+
+  return target;
+}
+
+function listWslWindowsManagedTempRoots() {
+  return listWslWindowsUserTempDirs().map((tempDir) =>
+    path.join(tempDir, "radiodash-download-agent"),
+  );
+}
+
+function uniquePaths(paths) {
+  const seen = new Set();
+
+  return paths.filter((filePath) => {
+    if (typeof filePath !== "string" || filePath.trim() === "") {
+      return false;
+    }
+
+    const resolved = path.resolve(filePath);
+
+    if (seen.has(resolved)) {
+      return false;
+    }
+
+    seen.add(resolved);
+    return true;
+  });
+}
+
+function getCandidateManagedRoots(preferredRoot = null) {
+  if (DA_TEMP_DIR) {
+    return [DA_TEMP_DIR];
+  }
+
+  return uniquePaths([
+    preferredRoot,
+    getManagedTempRoot(""),
+    ...listWslWindowsManagedTempRoots(),
+  ]);
+}
+
+function readCaseStateRecord(caseKey, managedRoot) {
+  const statePath = getCaseStatePath(managedRoot, caseKey);
+
+  if (!fs.existsSync(statePath)) {
+    return null;
+  }
+
+  return {
+    managedRoot,
+    state: readJsonFile(statePath),
+  };
+}
+
+function readCaseState(caseKey, preferredRoot = null) {
+  const state = createEmptyCaseState(caseKey);
+  let selectedRoot = preferredRoot || null;
+  let newestRecord = null;
+
+  for (const managedRoot of getCandidateManagedRoots(preferredRoot)) {
+    const record = readCaseStateRecord(caseKey, managedRoot);
+
+    if (!record) {
+      continue;
+    }
+
+    mergeCaseState(state, record.state);
+
+    if (
+      !newestRecord ||
+      getStateUpdatedTime(record.state) >
+        getStateUpdatedTime(newestRecord.state)
+    ) {
+      newestRecord = record;
+    }
+  }
+
+  selectedRoot =
+    selectedRoot || newestRecord?.managedRoot || getManagedTempRoot("");
+
+  return attachStateRoot(state, selectedRoot);
+}
+
+function writeCaseState(state, managedRoot = state.__managedRoot) {
+  const stateRoot = managedRoot || getManagedTempRoot("");
+  const statePath = getCaseStatePath(stateRoot, state.caseKey);
+
+  attachStateRoot(state, stateRoot);
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
   fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
 
   return state;
+}
+
+function getFileDir(caseDir, file) {
+  return path.join(
+    caseDir,
+    `${safeSegment(file.fileName, "file")}-${hashKey(file.fileId).slice(0, 12)}`,
+  );
+}
+
+function getDownloadAgentJobKey(file) {
+  return `${file.caseKey}\n${file.fileId}`;
+}
+
+function setActiveDownloadAgentPhase(file, phase) {
+  activeDownloadAgentPhases.set(getDownloadAgentJobKey(file), phase);
+}
+
+function clearActiveDownloadAgentPhase(file) {
+  activeDownloadAgentPhases.delete(getDownloadAgentJobKey(file));
+}
+
+function hasActiveDownloadAgentWork(caseKey, fileId) {
+  const jobKey = `${caseKey}\n${fileId}`;
+
+  return (
+    activeDownloadAgentJobs.has(jobKey) || activeDownloadAgentPhases.has(jobKey)
+  );
 }
 
 function validateCaseAndFile(req, res) {
@@ -242,41 +478,65 @@ function resetFileStateToNotDownloaded(fileState) {
   fileState.updatedAt = nowIso();
 }
 
-function pathExists(filePath) {
-  return (
-    typeof filePath === "string" && filePath !== "" && fs.existsSync(filePath)
-  );
-}
-
-function hasStalePreparedDiskState(fileState) {
-  const diskPaths = [
-    fileState.launchFilePath,
-    fileState.managedFilePath,
-  ].filter((filePath) => typeof filePath === "string" && filePath !== "");
-
-  if (fileState.status === DA_STATUS.READY) {
-    return !pathExists(fileState.launchFilePath);
-  }
-
-  if (fileState.status !== DA_STATUS.FAILED) {
+function fileExists(filePath) {
+  if (typeof filePath !== "string" || filePath === "") {
     return false;
   }
 
-  return diskPaths.some((filePath) => !fs.existsSync(filePath));
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function refreshFileStateFromDisk(state, fileId, fileState) {
+  if (fileState.status === DA_STATUS.READY) {
+    if (fileExists(fileState.launchFilePath)) {
+      return false;
+    }
+
+    console.log("[DA] Ready launch file missing; removing persisted state", {
+      fileId: fileState.fileId,
+      launchFilePath: fileState.launchFilePath,
+    });
+    delete state.files[fileId];
+    return true;
+  }
+
+  if (fileState.status === DA_STATUS.PREPARING) {
+    if (hasActiveDownloadAgentWork(state.caseKey, fileState.fileId)) {
+      return false;
+    }
+
+    console.log("[DA] Stale preparing state; resetting to Prepare", {
+      fileId: fileState.fileId,
+      phase: fileState.phase,
+    });
+    resetFileStateToNotDownloaded(fileState);
+    return true;
+  }
+
+  if (
+    fileState.status === DA_STATUS.FAILED &&
+    fileExists(fileState.launchFilePath)
+  ) {
+    fileState.status = DA_STATUS.READY;
+    fileState.phase = "ready";
+    fileState.error = null;
+    fileState.launchFileUrl = pathToFileUrl(fileState.launchFilePath);
+    fileState.updatedAt = nowIso();
+    return true;
+  }
+
+  return false;
 }
 
 function refreshCaseStateFromDisk(state) {
   let changed = false;
 
-  Object.values(state.files).forEach((fileState) => {
-    if (hasStalePreparedDiskState(fileState)) {
-      console.log("[DA] Prepared disk state missing; resetting to Prepare", {
-        fileId: fileState.fileId,
-        launchFilePath: fileState.launchFilePath,
-        managedFilePath: fileState.managedFilePath,
-        status: fileState.status,
-      });
-      resetFileStateToNotDownloaded(fileState);
+  Object.entries(state.files).forEach(([fileId, fileState]) => {
+    if (refreshFileStateFromDisk(state, fileId, fileState)) {
       changed = true;
     }
   });
@@ -425,10 +685,13 @@ async function moveSourceToManaged(sourceFilePath, destinationDir, fileName) {
       throw error;
     }
 
-    console.log("[DA] Rename crossed filesystems; falling back to copy+unlink", {
-      sourceFilePath,
-      destinationPath,
-    });
+    console.log(
+      "[DA] Rename crossed filesystems; falling back to copy+unlink",
+      {
+        sourceFilePath,
+        destinationPath,
+      },
+    );
     await fs.promises.copyFile(sourceFilePath, destinationPath);
     await fs.promises.unlink(sourceFilePath);
   }
@@ -539,9 +802,7 @@ async function buildAbridgedTree(rootDir) {
   const maxFilesPerDirectory = 10;
 
   async function walk(dir, prefix) {
-    const entries = (
-      await fs.promises.readdir(dir, { withFileTypes: true })
-    )
+    const entries = (await fs.promises.readdir(dir, { withFileTypes: true }))
       .filter((entry) => !entry.name.startsWith("."))
       .sort((a, b) => {
         if (a.isDirectory() && !b.isDirectory()) return -1;
@@ -834,66 +1095,118 @@ async function prepareDownloadedFile(file, downloadedFilePath) {
   }
 
   const managedRoot = getManagedTempRoot(sourceFilePath);
-  const caseDir = path.join(
-    managedRoot,
-    "cases",
-    `${safeSegment(file.caseKey, "case")}-${hashKey(file.caseKey).slice(0, 12)}`,
-  );
-  const fileDir = path.join(
+  const caseDir = getCaseDir(managedRoot, file.caseKey);
+  const fileDir = getFileDir(caseDir, file);
+  const workDir = path.join(
     caseDir,
-    `${safeSegment(file.fileName, "file")}-${hashKey(file.fileId).slice(0, 12)}`,
+    `${path.basename(fileDir)}.work-${process.pid}-${Date.now()}`,
   );
-  const originalDir = path.join(fileDir, "original");
-  const extractDir = path.join(fileDir, "extracted");
+  const originalDir = path.join(workDir, "original");
+  const extractDir = path.join(workDir, "extracted");
 
-  fs.rmSync(fileDir, { recursive: true, force: true });
-  fs.mkdirSync(fileDir, { recursive: true });
+  try {
+    await fs.promises.mkdir(caseDir, { recursive: true });
+    await fs.promises.rm(workDir, { recursive: true, force: true });
+    await fs.promises.mkdir(workDir, { recursive: true });
 
-  console.log("[DA] Moving browser download into managed temp", {
-    sourceFilePath,
-    fileDir,
-  });
-  const managedSourcePath = await moveSourceToManaged(
-    sourceFilePath,
-    originalDir,
-    file.fileName || path.basename(sourceFilePath),
-  );
+    console.log("[DA] Moving browser download into managed temp work dir", {
+      sourceFilePath,
+      workDir,
+      fileDir,
+    });
+    const workManagedSourcePath = await moveSourceToManaged(
+      sourceFilePath,
+      originalDir,
+      file.fileName || path.basename(sourceFilePath),
+    );
 
-  const extension = path.extname(managedSourcePath).toLowerCase();
+    const extension = path.extname(workManagedSourcePath).toLowerCase();
+    let workLaunchFilePath = workManagedSourcePath;
 
-  if (extension === ".inv" || extension === ".dcm") {
+    if (extension === ".zip") {
+      console.log("[DA] Extracting zip into managed temp work dir", {
+        managedSourcePath: workManagedSourcePath,
+        extractDir,
+      });
+      await extractZipSafely(workManagedSourcePath, extractDir);
+      await extractNestedZipsInPlace(extractDir);
+      workLaunchFilePath = await chooseLaunchFileWithOllama(extractDir);
+    } else if (extension !== ".inv" && extension !== ".dcm") {
+      throw new Error(
+        `Unsupported downloaded file type: ${extension || "none"}`,
+      );
+    }
+
+    await promotePreparedWorkDir(workDir, fileDir);
+
+    const managedFilePath = rebasePreparedPath(
+      workManagedSourcePath,
+      workDir,
+      fileDir,
+    );
+    const launchFilePath = rebasePreparedPath(
+      workLaunchFilePath,
+      workDir,
+      fileDir,
+    );
+
     return {
-      managedFilePath: managedSourcePath,
-      launchFilePath: managedSourcePath,
-      launchFileUrl: pathToFileUrl(managedSourcePath),
+      managedRoot,
+      managedFilePath,
+      launchFilePath,
+      launchFileUrl: pathToFileUrl(launchFilePath),
     };
+  } catch (error) {
+    await fs.promises
+      .rm(workDir, { recursive: true, force: true })
+      .catch(() => {});
+    throw error;
   }
-
-  if (extension !== ".zip") {
-    throw new Error(`Unsupported downloaded file type: ${extension || "none"}`);
-  }
-
-  console.log("[DA] Extracting zip into managed temp", {
-    managedSourcePath,
-    extractDir,
-  });
-  await extractZipSafely(managedSourcePath, extractDir);
-  await extractNestedZipsInPlace(extractDir);
-
-  const launchFilePath = await chooseLaunchFileWithOllama(extractDir);
-
-  return {
-    managedFilePath: managedSourcePath,
-    launchFilePath,
-    launchFileUrl: pathToFileUrl(launchFilePath),
-  };
 }
 
-function getDownloadAgentJobKey(file) {
-  return `${file.caseKey}\n${file.fileId}`;
+function rebasePreparedPath(filePath, oldRoot, newRoot) {
+  const relativePath = path.relative(oldRoot, filePath);
+
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    throw new Error(`Prepared path is outside work directory: ${filePath}`);
+  }
+
+  return path.join(newRoot, relativePath);
 }
 
-function queueDownloadAgentPreparation(file, downloadedFilePath) {
+async function promotePreparedWorkDir(workDir, fileDir) {
+  const backupDir = `${fileDir}.backup-${process.pid}-${Date.now()}`;
+  let hasBackup = false;
+
+  await fs.promises.rm(backupDir, { recursive: true, force: true });
+
+  try {
+    if (fs.existsSync(fileDir)) {
+      await fs.promises.rename(fileDir, backupDir);
+      hasBackup = true;
+    }
+
+    await fs.promises.rename(workDir, fileDir);
+
+    if (hasBackup) {
+      await fs.promises.rm(backupDir, { recursive: true, force: true });
+    }
+  } catch (error) {
+    if (hasBackup && !fs.existsSync(fileDir)) {
+      await fs.promises.rename(backupDir, fileDir).catch((restoreError) => {
+        console.error("[DA] Failed to restore previous prepared directory:", {
+          fileDir,
+          backupDir,
+          restoreError,
+        });
+      });
+    }
+
+    throw error;
+  }
+}
+
+function queueDownloadAgentPreparation(file, downloadedFilePath, managedRoot) {
   const jobKey = getDownloadAgentJobKey(file);
 
   if (activeDownloadAgentJobs.has(jobKey)) {
@@ -910,17 +1223,23 @@ function queueDownloadAgentPreparation(file, downloadedFilePath) {
     downloadedFilePath,
   });
 
-  const job = runDownloadAgentPreparation(file, downloadedFilePath).finally(
-    () => {
-      activeDownloadAgentJobs.delete(jobKey);
-    },
-  );
+  const job = runDownloadAgentPreparation(
+    file,
+    downloadedFilePath,
+    managedRoot,
+  ).finally(() => {
+    activeDownloadAgentJobs.delete(jobKey);
+  });
 
   activeDownloadAgentJobs.set(jobKey, job);
 }
 
-async function runDownloadAgentPreparation(file, downloadedFilePath) {
-  const state = readCaseState(file.caseKey);
+async function runDownloadAgentPreparation(
+  file,
+  downloadedFilePath,
+  managedRoot,
+) {
+  const state = readCaseState(file.caseKey, managedRoot);
   const fileState = getOrCreateFileState(state, file);
 
   try {
@@ -930,6 +1249,7 @@ async function runDownloadAgentPreparation(file, downloadedFilePath) {
       downloadedFilePath,
     });
     const prepared = await prepareDownloadedFile(file, downloadedFilePath);
+    attachStateRoot(state, prepared.managedRoot);
 
     fileState.status = DA_STATUS.READY;
     fileState.phase = "ready";
@@ -953,6 +1273,8 @@ async function runDownloadAgentPreparation(file, downloadedFilePath) {
     fileState.error = error.message;
     fileState.updatedAt = nowIso();
     writeCaseState(state);
+  } finally {
+    clearActiveDownloadAgentPhase(file);
   }
 }
 
@@ -1002,6 +1324,7 @@ function createDownloadAgentJobHandler() {
     }
 
     console.log("[DA] Job started", file);
+    setActiveDownloadAgentPhase(file, "downloading");
     const state = readCaseState(file.caseKey);
     const fileState = getOrCreateFileState(state, file);
 
@@ -1025,7 +1348,10 @@ function createDownloadAgentCompleteHandler() {
     }
 
     const { downloadedFilePath } = req.body || {};
-    const state = readCaseState(file.caseKey);
+    const sourceFilePath = normalizeDownloadedPath(downloadedFilePath);
+    const managedRoot = getManagedTempRoot(sourceFilePath || "");
+    setActiveDownloadAgentPhase(file, "unpacking");
+    const state = readCaseState(file.caseKey, managedRoot);
     const fileState = getOrCreateFileState(state, file);
 
     fileState.status = DA_STATUS.PREPARING;
@@ -1039,7 +1365,7 @@ function createDownloadAgentCompleteHandler() {
       fileId: file.fileId,
       downloadedFilePath,
     });
-    queueDownloadAgentPreparation(file, downloadedFilePath);
+    queueDownloadAgentPreparation(file, downloadedFilePath, managedRoot);
 
     res.json(stateForResponse(state));
   };
@@ -1055,6 +1381,7 @@ function createDownloadAgentFailHandler() {
 
     const state = readCaseState(file.caseKey);
     const fileState = getOrCreateFileState(state, file);
+    clearActiveDownloadAgentPhase(file);
 
     console.log("[DA] Browser download failed", {
       caseKey: file.caseKey,
@@ -1083,7 +1410,7 @@ function createDownloadAgentOpenHandler() {
       return;
     }
 
-    const state = readCaseState(file.caseKey);
+    const state = refreshCaseStateFromDisk(readCaseState(file.caseKey));
     const fileState = state.files[file.fileId];
 
     if (!fileState || fileState.status !== DA_STATUS.READY) {
@@ -1098,7 +1425,7 @@ function createDownloadAgentOpenHandler() {
       console.error("[DA] Open failed:", error);
 
       if (error.message === "Prepared launch file is missing") {
-        resetFileStateToNotDownloaded(fileState);
+        delete state.files[file.fileId];
         writeCaseState(state);
       }
 

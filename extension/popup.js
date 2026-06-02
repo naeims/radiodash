@@ -3,6 +3,7 @@ const DOWNLOAD_AGENT_POLL_INTERVAL_MS = 2000;
 
 let currentDownloadAgentPayload = null;
 let downloadAgentPollTimer = null;
+let latestDownloadAgentLoadId = 0;
 
 document.addEventListener("DOMContentLoaded", () => {
   loadTemplates();
@@ -71,6 +72,7 @@ async function loadTemplates() {
 
 async function loadDownloadAgentFiles(options = {}) {
   const { showLoading = true } = options;
+  const loadId = ++latestDownloadAgentLoadId;
 
   if (showLoading) {
     setDownloadAgentStatus("Loading");
@@ -80,6 +82,11 @@ async function loadDownloadAgentFiles(options = {}) {
     const payload = await sendRuntimeMessage({
       action: "get_download_agent_files",
     });
+
+    if (loadId !== latestDownloadAgentLoadId) {
+      console.log("[DA] Ignoring stale popup refresh", { loadId });
+      return;
+    }
 
     if (!payload?.ok) {
       console.error("[DA] Error loading files:", payload?.error);
@@ -100,6 +107,11 @@ async function loadDownloadAgentFiles(options = {}) {
     renderDownloadAgentFiles(payload.files);
     scheduleDownloadAgentPolling(payload.files);
   } catch (error) {
+    if (loadId !== latestDownloadAgentLoadId) {
+      console.log("[DA] Ignoring stale popup refresh error", { loadId });
+      return;
+    }
+
     console.error("[DA] Error loading files:", error);
     setDownloadAgentStatus("Unavailable");
     renderDownloadAgentFiles(currentDownloadAgentPayload?.files || []);

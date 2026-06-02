@@ -29,6 +29,7 @@ const DA_STATUS = Object.freeze({
   FAILED: "failed",
 });
 const activeDownloadAgentWork = new Map();
+const caseStateUpdateQueues = new Map();
 
 function listTemplates(templateDir = DEFAULT_TEMPLATE_DIR) {
   return fs
@@ -392,6 +393,40 @@ function writeCaseState(state, managedRoot = state.__managedRoot) {
   fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
 
   return state;
+}
+
+function enqueueCaseStateUpdate(caseKey, update) {
+  const previous = caseStateUpdateQueues.get(caseKey) || Promise.resolve();
+  const run = previous.catch(() => {}).then(update);
+  const next = run
+    .catch(() => {})
+    .finally(() => {
+      if (caseStateUpdateQueues.get(caseKey) === next) {
+        caseStateUpdateQueues.delete(caseKey);
+      }
+    });
+
+  caseStateUpdateQueues.set(caseKey, next);
+  return run;
+}
+
+function updateCaseState(caseKey, preferredRoot, update) {
+  return enqueueCaseStateUpdate(caseKey, async () => {
+    const state = readCaseState(caseKey, preferredRoot);
+    const result = await update(state);
+
+    writeCaseState(state);
+    return result === undefined ? state : result;
+  });
+}
+
+function updateFileState(file, preferredRoot, update) {
+  return updateCaseState(file.caseKey, preferredRoot, async (state) => {
+    const fileState = getOrCreateFileState(state, file);
+    const result = await update(fileState, state);
+
+    return result === undefined ? state : result;
+  });
 }
 
 function getFileDir(caseDir, file) {
@@ -1205,9 +1240,6 @@ async function runDownloadAgentPreparation(
   downloadedFilePath,
   managedRoot,
 ) {
-  const state = readCaseState(file.caseKey, managedRoot);
-  const fileState = getOrCreateFileState(state, file);
-
   try {
     console.log("[DA] Server preparation started", {
       caseKey: file.caseKey,
@@ -1215,18 +1247,18 @@ async function runDownloadAgentPreparation(
       downloadedFilePath,
     });
     const prepared = await prepareDownloadedFile(file, downloadedFilePath);
-    attachStateRoot(state, prepared.managedRoot);
 
-    fileState.status = DA_STATUS.READY;
-    fileState.phase = "ready";
-    fileState.sourceFilePath = normalizeDownloadedPath(downloadedFilePath);
-    fileState.managedFilePath = prepared.managedFilePath;
-    fileState.launchFilePath = prepared.launchFilePath;
-    fileState.launchFileUrl = prepared.launchFileUrl;
-    fileState.error = null;
-    fileState.updatedAt = nowIso();
+    await updateFileState(file, prepared.managedRoot, (fileState) => {
+      fileState.status = DA_STATUS.READY;
+      fileState.phase = "ready";
+      fileState.sourceFilePath = normalizeDownloadedPath(downloadedFilePath);
+      fileState.managedFilePath = prepared.managedFilePath;
+      fileState.launchFilePath = prepared.launchFilePath;
+      fileState.launchFileUrl = prepared.launchFileUrl;
+      fileState.error = null;
+      fileState.updatedAt = nowIso();
+    });
 
-    writeCaseState(state);
     console.log("[DA] File ready", {
       fileId: file.fileId,
       launchFilePath: prepared.launchFilePath,
@@ -1234,11 +1266,12 @@ async function runDownloadAgentPreparation(
     });
   } catch (error) {
     console.error("[DA] Preparation failed:", error);
-    fileState.status = DA_STATUS.FAILED;
-    fileState.phase = "failed";
-    fileState.error = error.message;
-    fileState.updatedAt = nowIso();
-    writeCaseState(state);
+    await updateFileState(file, managedRoot, (fileState) => {
+      fileState.status = DA_STATUS.FAILED;
+      fileState.phase = "failed";
+      fileState.error = error.message;
+      fileState.updatedAt = nowIso();
+    });
   } finally {
     clearActiveDownloadAgentWork(file);
   }
@@ -1282,31 +1315,35 @@ function createDocumentGenerationHandler(templateDir = DEFAULT_TEMPLATE_DIR) {
 }
 
 function createDownloadAgentJobHandler() {
-  return (req, res) => {
+  return async (req, res) => {
     const file = validateCaseAndFile(req, res);
 
     if (!file) {
       return;
     }
 
-    console.log("[DA] Job started", file);
-    setActiveDownloadAgentWork(file, "downloading");
-    const state = readCaseState(file.caseKey);
-    const fileState = getOrCreateFileState(state, file);
+    try {
+      console.log("[DA] Job started", file);
+      setActiveDownloadAgentWork(file, "downloading");
+      const state = await updateFileState(file, null, (fileState) => {
+        fileState.status = DA_STATUS.PREPARING;
+        fileState.phase = "downloading";
+        fileState.error = null;
+        fileState.launchFileUrl = null;
+        fileState.updatedAt = nowIso();
+      });
 
-    fileState.status = DA_STATUS.PREPARING;
-    fileState.phase = "downloading";
-    fileState.error = null;
-    fileState.launchFileUrl = null;
-    fileState.updatedAt = nowIso();
-
-    writeCaseState(state);
-    res.json(stateForResponse(state));
+      res.json(stateForResponse(state));
+    } catch (error) {
+      clearActiveDownloadAgentWork(file);
+      console.error("[DA] Failed to start job:", error);
+      res.status(500).json({ error: error.message });
+    }
   };
 }
 
 function createDownloadAgentCompleteHandler() {
-  return (req, res) => {
+  return async (req, res) => {
     const file = validateCaseAndFile(req, res);
 
     if (!file) {
@@ -1316,55 +1353,63 @@ function createDownloadAgentCompleteHandler() {
     const { downloadedFilePath } = req.body || {};
     const sourceFilePath = normalizeDownloadedPath(downloadedFilePath);
     const managedRoot = getManagedTempRoot(sourceFilePath || "");
-    setActiveDownloadAgentWork(file, "unpacking");
-    const state = readCaseState(file.caseKey, managedRoot);
-    const fileState = getOrCreateFileState(state, file);
 
-    fileState.status = DA_STATUS.PREPARING;
-    fileState.phase = "unpacking";
-    fileState.error = null;
-    fileState.updatedAt = nowIso();
-    writeCaseState(state);
+    try {
+      setActiveDownloadAgentWork(file, "unpacking");
+      const state = await updateFileState(file, managedRoot, (fileState) => {
+        fileState.status = DA_STATUS.PREPARING;
+        fileState.phase = "unpacking";
+        fileState.error = null;
+        fileState.updatedAt = nowIso();
+      });
 
-    console.log("[DA] Browser download completed; preparation queued", {
-      caseKey: file.caseKey,
-      fileId: file.fileId,
-      downloadedFilePath,
-    });
-    queueDownloadAgentPreparation(file, downloadedFilePath, managedRoot);
+      console.log("[DA] Browser download completed; preparation queued", {
+        caseKey: file.caseKey,
+        fileId: file.fileId,
+        downloadedFilePath,
+      });
+      queueDownloadAgentPreparation(file, downloadedFilePath, managedRoot);
 
-    res.json(stateForResponse(state));
+      res.json(stateForResponse(state));
+    } catch (error) {
+      clearActiveDownloadAgentWork(file);
+      console.error("[DA] Failed to complete browser download:", error);
+      res.status(500).json({ error: error.message });
+    }
   };
 }
 
 function createDownloadAgentFailHandler() {
-  return (req, res) => {
+  return async (req, res) => {
     const file = validateCaseAndFile(req, res);
 
     if (!file) {
       return;
     }
 
-    const state = readCaseState(file.caseKey);
-    const fileState = getOrCreateFileState(state, file);
-    clearActiveDownloadAgentWork(file);
+    try {
+      clearActiveDownloadAgentWork(file);
+      console.log("[DA] Browser download failed", {
+        caseKey: file.caseKey,
+        fileId: file.fileId,
+        error: req.body?.error,
+      });
 
-    console.log("[DA] Browser download failed", {
-      caseKey: file.caseKey,
-      fileId: file.fileId,
-      error: req.body?.error,
-    });
+      const state = await updateFileState(file, null, (fileState) => {
+        fileState.status = DA_STATUS.FAILED;
+        fileState.phase = "failed";
+        fileState.error =
+          typeof req.body?.error === "string" && req.body.error.trim() !== ""
+            ? req.body.error.trim()
+            : "Browser download failed";
+        fileState.updatedAt = nowIso();
+      });
 
-    fileState.status = DA_STATUS.FAILED;
-    fileState.phase = "failed";
-    fileState.error =
-      typeof req.body?.error === "string" && req.body.error.trim() !== ""
-        ? req.body.error.trim()
-        : "Browser download failed";
-    fileState.updatedAt = nowIso();
-
-    writeCaseState(state);
-    res.json(stateForResponse(state));
+      res.json(stateForResponse(state));
+    } catch (error) {
+      console.error("[DA] Failed to mark browser download failed:", error);
+      res.status(500).json({ error: error.message });
+    }
   };
 }
 
@@ -1376,32 +1421,53 @@ function createDownloadAgentOpenHandler() {
       return;
     }
 
-    const state = refreshCaseStateFromDisk(readCaseState(file.caseKey));
-    const fileState = state.files[file.fileId];
-
-    if (!fileState || fileState.status !== DA_STATUS.READY) {
-      res.status(409).json({ error: "File is not ready to view" });
-      return;
-    }
-
     try {
-      await openFileWithOs(fileState.launchFilePath);
-      res.json({ ok: true });
-    } catch (error) {
-      console.error("[DA] Open failed:", error);
+      const readyFile = await updateCaseState(file.caseKey, null, (state) => {
+        refreshCaseStateFromDisk(state);
+        const fileState = state.files[file.fileId];
 
-      if (error.message === "Prepared launch file is missing") {
-        delete state.files[file.fileId];
-        writeCaseState(state);
+        if (!fileState || fileState.status !== DA_STATUS.READY) {
+          return null;
+        }
+
+        return {
+          launchFilePath: fileState.launchFilePath,
+        };
+      });
+
+      if (!readyFile) {
+        res.status(409).json({ error: "File is not ready to view" });
+        return;
       }
 
+      try {
+        await openFileWithOs(readyFile.launchFilePath);
+        res.json({ ok: true });
+      } catch (error) {
+        console.error("[DA] Open failed:", error);
+
+        if (error.message === "Prepared launch file is missing") {
+          await updateCaseState(file.caseKey, null, (state) => {
+            if (
+              state.files[file.fileId]?.launchFilePath ===
+              readyFile.launchFilePath
+            ) {
+              delete state.files[file.fileId];
+            }
+          });
+        }
+
+        res.status(500).json({ error: error.message });
+      }
+    } catch (error) {
+      console.error("[DA] Open state update failed:", error);
       res.status(500).json({ error: error.message });
     }
   };
 }
 
 function createDownloadAgentStateHandler() {
-  return (req, res) => {
+  return async (req, res) => {
     const caseKey = req.query.caseKey;
 
     if (typeof caseKey !== "string" || caseKey.trim() === "") {
@@ -1409,9 +1475,16 @@ function createDownloadAgentStateHandler() {
       return;
     }
 
-    const state = refreshCaseStateFromDisk(readCaseState(caseKey.trim()));
+    try {
+      const state = await updateCaseState(caseKey.trim(), null, (state) => {
+        refreshCaseStateFromDisk(state);
+      });
 
-    res.json(stateForResponse(state));
+      res.json(stateForResponse(state));
+    } catch (error) {
+      console.error("[DA] Failed to read state:", error);
+      res.status(500).json({ error: error.message });
+    }
   };
 }
 

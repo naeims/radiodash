@@ -634,8 +634,28 @@ function quotePowerShellSingle(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
+function quoteCommandArgForLog(value) {
+  const text = String(value);
+
+  if (text === "") {
+    return '""';
+  }
+
+  if (!/[\s"]/u.test(text)) {
+    return text;
+  }
+
+  return `"${text.replace(/"/g, '\\"')}"`;
+}
+
 function spawnDetached(command, args) {
   return new Promise((resolve, reject) => {
+    console.log("[DA] Spawning detached process", {
+      command,
+      args,
+      commandLine: [command, ...args].map(quoteCommandArgForLog).join(" "),
+    });
+
     const child = spawn(command, args, {
       detached: true,
       stdio: "ignore",

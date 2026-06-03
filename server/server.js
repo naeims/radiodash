@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const { spawn } = require("child_process");
+const { execFileSync, spawn } = require("child_process");
 const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
@@ -18,6 +18,9 @@ const OLLAMA_CHAT_COMPLETIONS_URL =
 const OLLAMA_MODEL = "llama3.2:latest";
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const INVIVO_DENTAL_EXE =
+  process.env.INVIVO_DENTAL_EXE ||
+  "C:\\Program Files\\Anatomage\\InVivoDental\\InVivoDental.exe";
 const IS_WSL =
   process.platform === "linux" &&
   fs.existsSync("/proc/version") &&
@@ -109,6 +112,23 @@ function wslPathToWindowsPath(filePath) {
   }
 
   return `${match[1].toUpperCase()}:\\${match[2].replace(/\//g, "\\")}`;
+}
+
+function wslPathToWindowsLaunchPath(filePath) {
+  const mountedWindowsPath = wslPathToWindowsPath(filePath);
+
+  if (mountedWindowsPath !== filePath) {
+    return mountedWindowsPath;
+  }
+
+  try {
+    return execFileSync("wslpath", ["-w", filePath], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  } catch (error) {
+    throw new Error(`Could not convert WSL path to Windows path: ${filePath}`);
+  }
 }
 
 function normalizeDownloadedPath(filePath) {
@@ -670,7 +690,22 @@ function spawnDetached(command, args) {
   });
 }
 
-async function openFileWithOs(filePath) {
+function getInvivoLaunchFilePath(filePath) {
+  if (IS_WSL) {
+    return wslPathToWindowsLaunchPath(filePath);
+  }
+
+  return path.normalize(filePath);
+}
+
+function getPowerShellInvivoLaunchCommand(launchFilePath) {
+  return [
+    `$launchFilePath = ${quotePowerShellSingle(launchFilePath)}`,
+    `Start-Process -FilePath ${quotePowerShellSingle(INVIVO_DENTAL_EXE)} -ArgumentList ('"{0}"' -f $launchFilePath)`,
+  ].join("; ");
+}
+
+async function launchFileWithInvivoDental(filePath) {
   if (
     !filePath ||
     !fs.existsSync(filePath) ||
@@ -679,37 +714,31 @@ async function openFileWithOs(filePath) {
     throw new Error("Prepared launch file is missing");
   }
 
-  console.log("[DA] Opening launch file with OS", { filePath });
+  const launchFilePath = getInvivoLaunchFilePath(filePath);
+
+  console.log("[DA] Opening launch file with InVivoDental", {
+    executablePath: INVIVO_DENTAL_EXE,
+    filePath,
+    launchFilePath,
+  });
 
   if (IS_WSL) {
-    const windowsPath = wslPathToWindowsPath(filePath);
     await spawnDetached("powershell.exe", [
       "-NoProfile",
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      `Start-Process -FilePath ${quotePowerShellSingle(windowsPath)}`,
+      getPowerShellInvivoLaunchCommand(launchFilePath),
     ]);
     return;
   }
 
   if (process.platform === "win32") {
-    await spawnDetached("powershell.exe", [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-Command",
-      `Start-Process -FilePath ${quotePowerShellSingle(filePath)}`,
-    ]);
+    await spawnDetached(INVIVO_DENTAL_EXE, [launchFilePath]);
     return;
   }
 
-  if (process.platform === "darwin") {
-    await spawnDetached("open", [filePath]);
-    return;
-  }
-
-  await spawnDetached("xdg-open", [filePath]);
+  throw new Error("InVivoDental launch is only supported on Windows or WSL");
 }
 
 function assertInside(rootDir, targetPath) {
@@ -1149,10 +1178,11 @@ async function prepareDownloadedFile(file, downloadedFilePath) {
       await extractZipSafely(workManagedSourcePath, extractDir);
       await extractNestedZipsInPlace(extractDir);
       workLaunchFilePath = await chooseLaunchFileWithOllama(extractDir);
-    } else if (extension !== ".inv" && extension !== ".dcm") {
-      throw new Error(
-        `Unsupported downloaded file type: ${extension || "none"}`,
-      );
+    } else {
+      console.log("[DA] Using downloaded file directly as launch file", {
+        managedSourcePath: workManagedSourcePath,
+        extension: extension || "[no extension]",
+      });
     }
 
     await promotePreparedWorkDir(workDir, fileDir);
@@ -1461,7 +1491,7 @@ function createDownloadAgentOpenHandler() {
       }
 
       try {
-        await openFileWithOs(readyFile.launchFilePath);
+        await launchFileWithInvivoDental(readyFile.launchFilePath);
         res.json({ ok: true });
       } catch (error) {
         console.error("[DA] Open failed:", error);

@@ -5,7 +5,8 @@ const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const AdmZip = require("adm-zip");
+const { pipeline } = require("stream/promises");
+const yauzl = require("yauzl");
 const PizZip = require("pizzip");
 const Docxtemplater = require("docxtemplater");
 
@@ -784,30 +785,106 @@ async function moveSourceToManaged(sourceFilePath, destinationDir, fileName) {
   return destinationPath;
 }
 
+function openZipFile(zipPath) {
+  return new Promise((resolve, reject) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (error, zipfile) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(zipfile);
+    });
+  });
+}
+
+function openZipEntryReadStream(zipfile, entry) {
+  return new Promise((resolve, reject) => {
+    zipfile.openReadStream(entry, (error, readStream) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(readStream);
+    });
+  });
+}
+
+function getSafeZipEntry(destinationDir, entryName) {
+  const normalizedEntryName = String(entryName).replace(/\\/g, "/");
+
+  if (
+    normalizedEntryName === "" ||
+    normalizedEntryName.includes("\0") ||
+    path.posix.isAbsolute(normalizedEntryName) ||
+    path.win32.isAbsolute(normalizedEntryName) ||
+    normalizedEntryName.split("/").includes("..")
+  ) {
+    throw new Error(`Unsafe zip entry path: ${entryName}`);
+  }
+
+  const destinationPath = path.resolve(destinationDir, normalizedEntryName);
+  assertInside(destinationDir, destinationPath);
+
+  return {
+    destinationPath,
+    isDirectory: normalizedEntryName.endsWith("/"),
+  };
+}
+
 async function extractZipSafely(zipPath, destinationDir) {
-  const zip = new AdmZip(zipPath);
+  const zipfile = await openZipFile(zipPath);
 
   await fs.promises.mkdir(destinationDir, { recursive: true });
 
-  for (const [index, entry] of zip.getEntries().entries()) {
-    const entryName = entry.entryName.replace(/\\/g, "/");
-    const destinationPath = path.resolve(destinationDir, entryName);
+  return new Promise((resolve, reject) => {
+    let pendingEntry = Promise.resolve();
+    let settled = false;
 
-    assertInside(destinationDir, destinationPath);
+    function finish(error = null) {
+      if (settled) {
+        return;
+      }
 
-    if (entry.isDirectory) {
-      await fs.promises.mkdir(destinationPath, { recursive: true });
-    } else {
+      settled = true;
+      zipfile.close();
+
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    }
+
+    async function extractEntry(entry) {
+      const { destinationPath, isDirectory } = getSafeZipEntry(
+        destinationDir,
+        entry.fileName,
+      );
+
+      if (isDirectory) {
+        await fs.promises.mkdir(destinationPath, { recursive: true });
+        return;
+      }
+
       await fs.promises.mkdir(path.dirname(destinationPath), {
         recursive: true,
       });
-      await fs.promises.writeFile(destinationPath, entry.getData());
+
+      const readStream = await openZipEntryReadStream(zipfile, entry);
+      await pipeline(readStream, fs.createWriteStream(destinationPath));
     }
 
-    if (index > 0 && index % 10 === 0) {
-      await waitForNextTick();
-    }
-  }
+    zipfile.on("entry", (entry) => {
+      pendingEntry = pendingEntry
+        .then(() => extractEntry(entry))
+        .then(() => zipfile.readEntry(), finish);
+    });
+    zipfile.once("end", () => pendingEntry.then(() => finish(), finish));
+    zipfile.once("error", finish);
+    zipfile.readEntry();
+  });
 }
 
 async function listZipFiles(rootDir) {
@@ -949,7 +1026,7 @@ function pickRepresentativeFileEntries(files, maxFilesPerDirectory) {
 
 async function buildLlmAbridgedTree(rootDir) {
   const lines = [
-    "The root directory is represented by Directory:\".\" - If the launch file is picked from this directory, just include the relativePath verbatim.",
+    'The root directory is represented by Directory:"." - If the launch file is picked from this directory, just include the relativePath verbatim.',
     "Only choose a launch file from an exact relativePath value shown below.",
     "Directory names and file names are JSON-quoted so spaces and punctuation are significant.",
     "",

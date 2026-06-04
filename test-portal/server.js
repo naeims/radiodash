@@ -5,7 +5,109 @@ const path = require("path");
 const DEFAULT_PORT = Number(process.env.PORT) || 5173;
 const DEFAULT_HOST = process.env.HOST || "127.0.0.1";
 const FILES_DIR = path.resolve(__dirname, "files");
-const CASE_PATH = "/patients/123456/radiology/789012";
+const PATIENT_LIST_PATH = "/patients";
+const TEST_PATIENTS = [
+  {
+    id: "100001",
+    studyId: "900001",
+    name: "Madhri Yeramalli",
+    dob: "4/12/1981",
+    age: "45",
+    sex: "F",
+    doctor: "Dr. Patel",
+    practice: "Northside Dental",
+    files: ["Madhri Yeramalli.zip"],
+  },
+  {
+    id: "100002",
+    studyId: "900002",
+    name: "OBrien Conan",
+    dob: "3/8/1969",
+    age: "57",
+    sex: "M",
+    doctor: "Dr. Example",
+    practice: "Example Practice",
+    files: ["OBrien Conan - DICOMS.zip"],
+  },
+  {
+    id: "100003",
+    studyId: "900003",
+    name: "F Thinker",
+    dob: "9/17/1978",
+    age: "47",
+    sex: "N/A",
+    doctor: "Dr. Ito",
+    practice: "Central Imaging",
+    files: ["F Thinker.zip"],
+  },
+  {
+    id: "100004",
+    studyId: "900004",
+    name: "H Dog",
+    dob: "6/2/1975",
+    age: "51",
+    sex: "N/A",
+    doctor: "Dr. Chen",
+    practice: "Two File Dental",
+    files: ["H Dog 2.zip", "DICOMRM.zip"],
+  },
+  {
+    id: "100005",
+    studyId: "900005",
+    name: "Rick Bleh",
+    dob: "12/22/1962",
+    age: "63",
+    sex: "M",
+    doctor: "Dr. Morgan",
+    practice: "Westside Dental",
+    files: ["Rick Bleh.zip"],
+  },
+  {
+    id: "100006",
+    studyId: "900006",
+    name: "CT One",
+    dob: "8/14/1990",
+    age: "35",
+    sex: "N/A",
+    doctor: "Dr. Singh",
+    practice: "CT Trial Clinic",
+    files: ["CT1.zip"],
+  },
+  {
+    id: "100007",
+    studyId: "900007",
+    name: "Timestamp Case",
+    dob: "2/3/1988",
+    age: "38",
+    sex: "N/A",
+    doctor: "Dr. Lee",
+    practice: "Archive Dental",
+    files: ["20260527_153144.zip"],
+  },
+  {
+    id: "100008",
+    studyId: "900008",
+    name: "Zero Case",
+    dob: "11/9/1971",
+    age: "54",
+    sex: "N/A",
+    doctor: "Dr. Nguyen",
+    practice: "Zero Study Group",
+    files: ["000000000528_20260604122704.zip"],
+  },
+  {
+    id: "100009",
+    studyId: "900009",
+    name: "McCarthy Sumo",
+    dob: "5/27/1994",
+    age: "32",
+    sex: "N/A",
+    doctor: "Dr. Alvarez",
+    practice: "Invivo Direct",
+    files: ["McCarthy1994_McCarthy_Sumo_20260527.inv"],
+  },
+];
+const CASE_PATH = getPatientCasePath(TEST_PATIENTS[0]);
 
 function escapeHtml(value) {
   return String(value)
@@ -33,6 +135,34 @@ function getSampleFiles() {
     .sort((a, b) => a.localeCompare(b));
 }
 
+function getPatientCasePath(patient) {
+  return `/patients/${encodeURIComponent(patient.id)}/radiology/${encodeURIComponent(
+    patient.studyId,
+  )}`;
+}
+
+function getPatientByPath(pathname) {
+  const parts = pathname.split("/").filter(Boolean);
+
+  if (
+    parts.length !== 4 ||
+    parts[0] !== "patients" ||
+    parts[2] !== "radiology"
+  ) {
+    return null;
+  }
+
+  return TEST_PATIENTS.find(
+    (patient) => patient.id === parts[1] && patient.studyId === parts[3],
+  );
+}
+
+function getPatientFiles(patient) {
+  const availableFiles = new Set(getSampleFiles());
+
+  return patient.files.filter((fileName) => availableFiles.has(fileName));
+}
+
 function renderDownloadRow(fileName) {
   const escapedFileName = escapeHtml(fileName);
 
@@ -49,9 +179,114 @@ function renderDownloadRow(fileName) {
 </div>`;
 }
 
-function renderPortalPage() {
-  const files = getSampleFiles();
+function renderPatientListPage() {
+  const patientRows = TEST_PATIENTS.map((patient) => {
+    const casePath = getPatientCasePath(patient);
+    const files = getPatientFiles(patient);
+    const escapedName = escapeHtml(patient.name);
+
+    return `<tr>
+      <td><a class="patient-link" href="${casePath}">${escapedName}</a></td>
+      <td>${escapeHtml(patient.id)}</td>
+      <td>${escapeHtml(patient.studyId)}</td>
+      <td>${escapeHtml(files.join(", ") || "No configured files found")}</td>
+      <td>${files.length}</td>
+    </tr>`;
+  }).join("\n");
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>RadioDash Test Portal Patients</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #f5f7fa;
+        color: #25313b;
+      }
+
+      main {
+        max-width: 1080px;
+        margin: 32px auto;
+        padding: 0 20px;
+      }
+
+      .k-card {
+        background: #fff;
+        border: 1px solid #d9e1e8;
+        border-radius: 6px;
+      }
+
+      .k-card-body {
+        padding: 18px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid #d9e1e8;
+        font-size: 14px;
+        padding: 10px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: #607080;
+        font-weight: 700;
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      .patient-link {
+        color: #1f5f8f;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .patient-link:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Patients</h1>
+      <section class="k-card">
+        <div class="k-card-body">
+          <table>
+            <thead>
+              <tr>
+                <th>Patient</th>
+                <th>Patient ID</th>
+                <th>Study ID</th>
+                <th>Test file</th>
+                <th>Files</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${patientRows}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>`;
+}
+
+function renderPortalPage(patient = TEST_PATIENTS[0]) {
+  const files = getPatientFiles(patient);
   const downloadRows = files.map(renderDownloadRow).join("\n");
+  const escapedName = escapeHtml(patient.name);
 
   return `<!doctype html>
 <html>
@@ -70,6 +305,19 @@ function renderPortalPage() {
         max-width: 960px;
         margin: 32px auto;
         padding: 0 20px;
+      }
+
+      .back-link {
+        color: #1f5f8f;
+        display: inline-block;
+        font-size: 14px;
+        font-weight: 700;
+        margin-bottom: 12px;
+        text-decoration: none;
+      }
+
+      .back-link:hover {
+        text-decoration: underline;
       }
 
       .k-card {
@@ -171,16 +419,17 @@ function renderPortalPage() {
   </head>
   <body>
     <main>
+      <a class="back-link" href="${PATIENT_LIST_PATH}">Patients</a>
       <h1>RadioDash Test Portal</h1>
-      <div class="patient-profile-image-name"><div class="f-size-24">Test Patient</div></div>
+      <div class="patient-profile-image-name"><div class="f-size-24">${escapedName}</div></div>
 
       <section class="k-card">
         <div class="k-card-body detail-grid">
-          <div class="detail-label">DOB:</div><div class="detail-value">1/1/1970</div>
-          <div class="detail-label">Age:</div><div class="detail-value">56</div>
-          <div class="detail-label">Sex:</div><div class="detail-value">N/A</div>
-          <div class="detail-label">Primary Dentist:</div><div class="k-link">Dr. Example</div>
-          <div class="detail-label">Practice Name:</div><div class="k-link">Example Practice</div>
+          <div class="detail-label">DOB:</div><div class="detail-value">${escapeHtml(patient.dob)}</div>
+          <div class="detail-label">Age:</div><div class="detail-value">${escapeHtml(patient.age)}</div>
+          <div class="detail-label">Sex:</div><div class="detail-value">${escapeHtml(patient.sex)}</div>
+          <div class="detail-label">Primary Dentist:</div><div class="k-link">${escapeHtml(patient.doctor)}</div>
+          <div class="detail-label">Practice Name:</div><div class="k-link">${escapeHtml(patient.practice)}</div>
         </div>
       </section>
 
@@ -256,13 +505,19 @@ function handleRequest(request, response) {
   const requestUrl = new URL(request.url, `http://${request.headers.host}`);
 
   if (requestUrl.pathname === "/") {
-    response.writeHead(302, { Location: CASE_PATH });
-    response.end();
+    sendText(response, 200, renderPatientListPage(), "text/html");
     return;
   }
 
-  if (requestUrl.pathname === CASE_PATH) {
-    sendText(response, 200, renderPortalPage(), "text/html");
+  if (requestUrl.pathname === PATIENT_LIST_PATH) {
+    sendText(response, 200, renderPatientListPage(), "text/html");
+    return;
+  }
+
+  const patient = getPatientByPath(requestUrl.pathname);
+
+  if (patient) {
+    sendText(response, 200, renderPortalPage(patient), "text/html");
     return;
   }
 
@@ -283,6 +538,9 @@ if (require.main === module) {
       `Test portal running at http://${DEFAULT_HOST}:${DEFAULT_PORT}`,
     );
     console.log(
+      `Patient list: http://${DEFAULT_HOST}:${DEFAULT_PORT}${PATIENT_LIST_PATH}`,
+    );
+    console.log(
       `Case page: http://${DEFAULT_HOST}:${DEFAULT_PORT}${CASE_PATH}`,
     );
   });
@@ -291,7 +549,10 @@ if (require.main === module) {
 module.exports = {
   CASE_PATH,
   FILES_DIR,
+  PATIENT_LIST_PATH,
+  TEST_PATIENTS,
   getSampleFiles,
   handleRequest,
+  renderPatientListPage,
   renderPortalPage,
 };

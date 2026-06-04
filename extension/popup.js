@@ -262,7 +262,7 @@ function setPreparingButton(button) {
   spinner.setAttribute("aria-hidden", "true");
 
   const text = document.createElement("span");
-  text.textContent = "Preparing";
+  text.textContent = "Preparing...";
 
   button.appendChild(spinner);
   button.appendChild(text);

@@ -2,8 +2,11 @@ const SERVER_BASE_URL = "http://localhost:5000";
 const DOWNLOAD_STORAGE_PREFIX = "downloadAgentDownload:";
 const PORTAL_CLICK_PENDING_KEY = "downloadAgentPendingPortalClicks";
 const PORTAL_CLICK_TIMEOUT_MS = 60000;
+const AUTO_PREPARE_DEBOUNCE_MS = 1000;
 
 const portalClickTimeouts = new Map();
+const autoPrepareTimers = new Map();
+const autoPrepareFileKeys = new Set();
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const handlers = {
@@ -25,6 +28,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ ok: false, error: error.message });
     });
   return true;
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== "complete" && !changeInfo.url) {
+    return;
+  }
+
+  scheduleAutoPrepareForTab(tabId, changeInfo.url || tab.url);
+});
+
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError) {
+      return;
+    }
+
+    scheduleAutoPrepareForTab(tabId, tab.url);
+  });
 });
 
 chrome.downloads.onChanged.addListener((delta) => {
@@ -72,14 +93,26 @@ async function getDownloadAgentFiles() {
     throw new Error("No active tab found");
   }
 
-  console.log("[DA] Inspecting active tab for download links:", activeTab.url);
-  const results = await executeScript(activeTab.id, collectDownloadAgentLinks, [
+  const payload = await inspectDownloadAgentFilesInTab(
+    activeTab.id,
     activeTab.url,
+  );
+
+  return {
+    ok: true,
+    ...payload,
+  };
+}
+
+async function inspectDownloadAgentFilesInTab(tabId, tabUrl) {
+  console.log("[DA] Inspecting tab for download links:", tabUrl);
+  const results = await executeScript(tabId, collectDownloadAgentLinks, [
+    tabUrl,
   ]);
   const payload = results?.[0]?.result;
 
   if (!payload?.caseKey) {
-    throw new Error("Could not determine case from active tab URL");
+    throw new Error("Could not determine case from tab URL");
   }
 
   const serverState = await getJson(
@@ -117,7 +150,6 @@ async function getDownloadAgentFiles() {
   console.log("[DA] Found portal download files:", files);
 
   return {
-    ok: true,
     caseKey: payload.caseKey,
     files,
   };
@@ -151,13 +183,13 @@ function buildUniqueServerFilesByName(serverFiles) {
   return filesByName;
 }
 
-async function prepareDownloadAgentFile(file) {
+async function prepareDownloadAgentFile(file, tabId = null) {
   if (!file?.caseKey || !file?.fileId) {
     throw new Error("Invalid Download Agent file payload");
   }
 
   if (!file.downloadUrl) {
-    return preparePortalClickDownloadAgentFile(file);
+    return preparePortalClickDownloadAgentFile(file, tabId);
   }
 
   console.log("[DA] Starting browser download:", file);
@@ -192,21 +224,21 @@ async function prepareDownloadAgentFile(file) {
   };
 }
 
-async function preparePortalClickDownloadAgentFile(file) {
-  const activeTab = await getActiveTab();
+async function preparePortalClickDownloadAgentFile(file, tabId = null) {
+  const targetTabId = tabId || (await getActiveTab())?.id;
 
-  if (!activeTab?.id) {
-    throw new Error("No active tab found");
+  if (!targetTabId) {
+    throw new Error("No target tab found");
   }
 
   console.log("[DA] Starting portal-click browser download:", file);
   await postJson("/download-agent/jobs", file);
 
-  const pending = await registerPendingPortalClick(file, activeTab.id);
+  const pending = await registerPendingPortalClick(file, targetTabId);
 
   try {
     const results = await executeScript(
-      activeTab.id,
+      targetTabId,
       clickPortalDownloadButton,
       [
         {
@@ -241,6 +273,92 @@ async function preparePortalClickDownloadAgentFile(file) {
     ok: true,
     downloadPending: true,
   };
+}
+
+function scheduleAutoPrepareForTab(tabId, tabUrl) {
+  if (!isLikelyCaseUrl(tabUrl)) {
+    return;
+  }
+
+  if (autoPrepareTimers.has(tabId)) {
+    clearTimeout(autoPrepareTimers.get(tabId));
+  }
+
+  autoPrepareTimers.set(
+    tabId,
+    setTimeout(() => {
+      autoPrepareTimers.delete(tabId);
+      autoPrepareDownloadAgentFilesInTab(tabId, tabUrl).catch((error) => {
+        console.log("[DA] Automatic prepare skipped or failed:", {
+          tabUrl,
+          error: error.message,
+        });
+      });
+    }, AUTO_PREPARE_DEBOUNCE_MS),
+  );
+}
+
+function isLikelyCaseUrl(tabUrl) {
+  if (typeof tabUrl !== "string" || tabUrl.trim() === "") {
+    return false;
+  }
+
+  try {
+    const url = new URL(tabUrl);
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return false;
+    }
+
+    const parts = url.pathname.split("/").filter(Boolean);
+
+    return parts.includes("patients") && parts.includes("radiology");
+  } catch {
+    return false;
+  }
+}
+
+async function autoPrepareDownloadAgentFilesInTab(tabId, tabUrl) {
+  const payload = await inspectDownloadAgentFilesInTab(tabId, tabUrl);
+  const filesToPrepare = payload.files.filter(
+    (file) => file.canPrepare && file.status === "not_downloaded",
+  );
+
+  if (filesToPrepare.length === 0) {
+    console.log("[DA] Automatic prepare found no new files", {
+      caseKey: payload.caseKey,
+    });
+    return;
+  }
+
+  console.log("[DA] Automatic prepare starting", {
+    caseKey: payload.caseKey,
+    fileCount: filesToPrepare.length,
+  });
+
+  for (const file of filesToPrepare) {
+    const fileKey = `${file.caseKey}\n${file.fileId}`;
+
+    if (autoPrepareFileKeys.has(fileKey)) {
+      continue;
+    }
+
+    autoPrepareFileKeys.add(fileKey);
+
+    try {
+      await prepareDownloadAgentFile(file, tabId);
+      notifyDownloadAgentStateUpdated(file.caseKey);
+    } catch (error) {
+      console.error("[DA] Automatic prepare failed:", {
+        caseKey: file.caseKey,
+        fileId: file.fileId,
+        fileName: file.fileName,
+        error: error.message,
+      });
+    } finally {
+      autoPrepareFileKeys.delete(fileKey);
+    }
+  }
 }
 
 async function viewDownloadAgentFile(file) {

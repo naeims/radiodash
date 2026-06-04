@@ -3,7 +3,7 @@
   "name": "RadioDash",
   "version": "1.0",
   "description": "Radiologist Dashboard",
-  "permissions": ["activeTab", "downloads", "scripting", "storage"],
+  "permissions": ["activeTab", "downloads", "scripting", "storage", "tabs"],
   "background": {
     "service_worker": "background.js"
   },
@@ -15,5 +15,5 @@
       "128": "icons/icon128.png"
     }
   },
-  "host_permissions": ["http://localhost:5000/*"]
+  "host_permissions": ["http://*/*", "https://*/*"]
 }

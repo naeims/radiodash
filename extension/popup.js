@@ -16,6 +16,12 @@ document.addEventListener("DOMContentLoaded", () => {
       loadDownloadAgentFiles();
     });
 
+  document
+    .getElementById("download-agent-settings")
+    .addEventListener("click", () => {
+      chrome.runtime.openOptionsPage();
+    });
+
   chrome.runtime.onMessage.addListener((message) => {
     if (
       message.action === "download_agent_state_updated" &&

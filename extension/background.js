@@ -1,6 +1,7 @@
 const SERVER_BASE_URL = "http://localhost:5000";
 const DOWNLOAD_STORAGE_PREFIX = "downloadAgentDownload:";
 const PORTAL_CLICK_PENDING_KEY = "downloadAgentPendingPortalClicks";
+const AUTO_PREPARE_ENABLED_KEY = "downloadAgentAutoPrepareEnabled";
 const PORTAL_CLICK_TIMEOUT_MS = 60000;
 const AUTO_PREPARE_DEBOUNCE_MS = 1000;
 
@@ -14,6 +15,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     get_download_agent_files: () => getDownloadAgentFiles(),
     prepare_download_agent_file: () => prepareDownloadAgentFile(request.file),
     view_download_agent_file: () => viewDownloadAgentFile(request.file),
+    get_auto_prepare_setting: () => getAutoPrepareSetting(),
+    set_auto_prepare_setting: () => setAutoPrepareSetting(request.enabled),
   };
   const handler = handlers[request.action];
 
@@ -319,6 +322,11 @@ function isLikelyCaseUrl(tabUrl) {
 }
 
 async function autoPrepareDownloadAgentFilesInTab(tabId, tabUrl) {
+  if (!(await getAutoPrepareEnabled())) {
+    console.log("[DA] Automatic prepare disabled");
+    return;
+  }
+
   const payload = await inspectDownloadAgentFilesInTab(tabId, tabUrl);
   const filesToPrepare = payload.files.filter(
     (file) => file.canPrepare && file.status === "not_downloaded",
@@ -359,6 +367,28 @@ async function autoPrepareDownloadAgentFilesInTab(tabId, tabUrl) {
       autoPrepareFileKeys.delete(fileKey);
     }
   }
+}
+
+async function getAutoPrepareSetting() {
+  return {
+    ok: true,
+    enabled: await getAutoPrepareEnabled(),
+  };
+}
+
+async function setAutoPrepareSetting(enabled) {
+  await storageSet(AUTO_PREPARE_ENABLED_KEY, enabled !== false);
+
+  return {
+    ok: true,
+    enabled: await getAutoPrepareEnabled(),
+  };
+}
+
+async function getAutoPrepareEnabled() {
+  const enabled = await storageGet(AUTO_PREPARE_ENABLED_KEY);
+
+  return enabled !== false;
 }
 
 async function viewDownloadAgentFile(file) {
@@ -771,7 +801,11 @@ function storageSet(key, value) {
 
 function storageGet(key) {
   return new Promise((resolve) => {
-    chrome.storage.local.get(key, (items) => resolve(items[key] || null));
+    chrome.storage.local.get(key, (items) => {
+      resolve(
+        Object.prototype.hasOwnProperty.call(items, key) ? items[key] : null,
+      );
+    });
   });
 }
 

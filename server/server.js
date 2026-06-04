@@ -949,9 +949,10 @@ function pickRepresentativeFileEntries(files, maxFilesPerDirectory) {
 
 async function buildLlmAbridgedTree(rootDir) {
   const lines = [
-    "The root directory is represented by .",
+    "The root directory is represented by Directory:\".\" - If the launch file is picked from this directory, just include the relativePath verbatim.",
     "Only choose a launch file from an exact relativePath value shown below.",
     "Directory names and file names are JSON-quoted so spaces and punctuation are significant.",
+    "",
     "",
   ];
   const maxFilesPerDirectory = 12;

@@ -183,7 +183,8 @@ function scheduleDownloadAgentPolling(files) {
 
 function configureActionButton(button, file) {
   if (file.status === "ready") {
-    button.textContent = "View";
+    setButtonLabel(button, "View");
+    button.classList.add("action-view");
     button.addEventListener("click", async () => {
       console.log("[DA] Opening launch file through server", file);
       try {
@@ -205,21 +206,27 @@ function configureActionButton(button, file) {
   }
 
   if (file.status === "preparing") {
-    button.textContent = "Preparing";
+    setPreparingButton(button);
     button.disabled = true;
     return;
   }
 
   if (!file.canPrepare) {
-    button.textContent = "Unavailable";
+    setButtonLabel(button, "Unavailable");
     button.disabled = true;
     return;
   }
 
-  button.textContent = file.status === "failed" ? "Retry" : "Prepare";
+  const isRetry = file.status === "failed";
+  setButtonLabel(button, isRetry ? "Retry" : "Prepare");
+
+  if (isRetry) {
+    button.classList.add("action-retry");
+  }
+
   button.addEventListener("click", async () => {
     console.log("[DA] Prepare requested", file);
-    button.textContent = "Preparing";
+    setPreparingButton(button);
     button.disabled = true;
 
     try {
@@ -237,4 +244,26 @@ function configureActionButton(button, file) {
       loadDownloadAgentFiles();
     }
   });
+}
+
+function setButtonLabel(button, label) {
+  button.textContent = "";
+
+  const text = document.createElement("span");
+  text.textContent = label;
+  button.appendChild(text);
+}
+
+function setPreparingButton(button) {
+  button.textContent = "";
+
+  const spinner = document.createElement("span");
+  spinner.className = "loading-spinner";
+  spinner.setAttribute("aria-hidden", "true");
+
+  const text = document.createElement("span");
+  text.textContent = "Preparing";
+
+  button.appendChild(spinner);
+  button.appendChild(text);
 }

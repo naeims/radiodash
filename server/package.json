@@ -1,7 +1,8 @@
 {
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "test:llm": "node scripts/llm-launch-file-harness.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

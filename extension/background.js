@@ -17,6 +17,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     view_download_agent_file: () => viewDownloadAgentFile(request.file),
     get_auto_prepare_setting: () => getAutoPrepareSetting(),
     set_auto_prepare_setting: () => setAutoPrepareSetting(request.enabled),
+    delete_download_agent_temp: () => deleteDownloadAgentTemp(),
   };
   const handler = handlers[request.action];
 
@@ -791,6 +792,13 @@ async function handlePortalClickTimeout(pending) {
     error: "Portal download did not start within 60 seconds",
   });
   notifyDownloadAgentStateUpdated(pending.file.caseKey);
+}
+
+async function deleteDownloadAgentTemp() {
+  return {
+    ok: true,
+    ...(await postJson("/download-agent/temp/clear", {})),
+  };
 }
 
 function storageSet(key, value) {

@@ -106,6 +106,17 @@ const TEST_PATIENTS = [
     practice: "Invivo Direct",
     files: ["McCarthy1994_McCarthy_Sumo_20260527.inv"],
   },
+  {
+    id: "100010",
+    studyId: "900010",
+    name: "Abdul Jamal",
+    dob: "1/1/1970",
+    age: "56",
+    sex: "N/A",
+    doctor: "Dr. Example",
+    practice: "Example Practice",
+    files: ["Abdul, Jamal.zip"],
+  },
 ];
 const CASE_PATH = getPatientCasePath(TEST_PATIENTS[0]);
 
@@ -200,11 +211,15 @@ function renderPatientListPage() {
     <meta charset="utf-8">
     <title>RadioDash Test Portal Patients</title>
     <style>
+      :root {
+        color-scheme: dark;
+      }
+
       body {
         margin: 0;
         font-family: Arial, sans-serif;
-        background: #f5f7fa;
-        color: #25313b;
+        background: #0f1720;
+        color: #e6edf3;
       }
 
       main {
@@ -214,9 +229,10 @@ function renderPatientListPage() {
       }
 
       .k-card {
-        background: #fff;
-        border: 1px solid #d9e1e8;
+        background: #151f2b;
+        border: 1px solid #2a3a4d;
         border-radius: 6px;
+        box-shadow: 0 14px 40px rgba(0, 0, 0, 0.24);
       }
 
       .k-card-body {
@@ -230,7 +246,7 @@ function renderPatientListPage() {
 
       th,
       td {
-        border-bottom: 1px solid #d9e1e8;
+        border-bottom: 1px solid #2a3a4d;
         font-size: 14px;
         padding: 10px 8px;
         text-align: left;
@@ -238,8 +254,16 @@ function renderPatientListPage() {
       }
 
       th {
-        color: #607080;
+        color: #9fb0c3;
         font-weight: 700;
+      }
+
+      td {
+        color: #d8e2ec;
+      }
+
+      tbody tr:hover {
+        background: #1b2836;
       }
 
       tr:last-child td {
@@ -247,7 +271,7 @@ function renderPatientListPage() {
       }
 
       .patient-link {
-        color: #1f5f8f;
+        color: #7dc4ff;
         font-weight: 700;
         text-decoration: none;
       }
@@ -294,11 +318,15 @@ function renderPortalPage(patient = TEST_PATIENTS[0]) {
     <meta charset="utf-8">
     <title>RadioDash Test Portal</title>
     <style>
+      :root {
+        color-scheme: dark;
+      }
+
       body {
         margin: 0;
         font-family: Arial, sans-serif;
-        background: #f5f7fa;
-        color: #25313b;
+        background: #0f1720;
+        color: #e6edf3;
       }
 
       main {
@@ -308,7 +336,7 @@ function renderPortalPage(patient = TEST_PATIENTS[0]) {
       }
 
       .back-link {
-        color: #1f5f8f;
+        color: #7dc4ff;
         display: inline-block;
         font-size: 14px;
         font-weight: 700;
@@ -320,10 +348,30 @@ function renderPortalPage(patient = TEST_PATIENTS[0]) {
         text-decoration: underline;
       }
 
-      .k-card {
-        background: #fff;
-        border: 1px solid #d9e1e8;
+      h1,
+      h2 {
+        color: #f2f6fa;
+      }
+
+      .patient-profile-image-name {
+        background: #151f2b;
+        border: 1px solid #2a3a4d;
         border-radius: 6px;
+        margin-bottom: 18px;
+        padding: 14px 18px;
+      }
+
+      .f-size-24 {
+        color: #f2f6fa;
+        font-size: 24px;
+        font-weight: 700;
+      }
+
+      .k-card {
+        background: #151f2b;
+        border: 1px solid #2a3a4d;
+        border-radius: 6px;
+        box-shadow: 0 14px 40px rgba(0, 0, 0, 0.24);
         margin-bottom: 18px;
       }
 
@@ -381,10 +429,26 @@ function renderPortalPage(patient = TEST_PATIENTS[0]) {
       .report-detail-download-btn {
         border: none;
         background: transparent;
-        color: #41596b;
+        color: #b8c7d8;
         cursor: pointer;
         min-width: 32px;
         min-height: 32px;
+      }
+
+      .k-button {
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        color: #b8c7d8;
+        cursor: pointer;
+        min-width: 32px;
+        min-height: 32px;
+      }
+
+      .k-button:hover {
+        background: #223044;
+        border-color: #344961;
+        color: #e6edf3;
       }
 
       .report-detail-download-btn[disabled] {
@@ -404,16 +468,31 @@ function renderPortalPage(patient = TEST_PATIENTS[0]) {
       }
 
       .detail-label {
-        color: #607080;
+        color: #9fb0c3;
       }
 
       .detail-value,
       .k-link {
-        color: #25313b;
+        color: #e6edf3;
       }
 
       .recent-files-list {
         padding: 10px;
+      }
+
+      .k-hbox {
+        border-radius: 4px;
+        color: #d8e2ec;
+        padding: 4px 6px;
+      }
+
+      .k-hbox:hover {
+        background: #1b2836;
+      }
+
+      .file-name-trunc {
+        color: #d8e2ec;
+        text-decoration: none;
       }
     </style>
   </head>

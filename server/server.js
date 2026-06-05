@@ -16,7 +16,7 @@ const DA_TEMP_DIR = process.env.DA_TEMP_DIR || null;
 const OLLAMA_CHAT_COMPLETIONS_URL =
   process.env.OLLAMA_CHAT_COMPLETIONS_URL ||
   "http://localhost:11434/v1/chat/completions";
-const OLLAMA_MODEL = "llama3.2:latest";
+const OLLAMA_MODEL = "llama3.1:8b";
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const INVIVO_DENTAL_EXE =
@@ -32,6 +32,29 @@ const DA_STATUS = Object.freeze({
   READY: "ready",
   FAILED: "failed",
 });
+const LLM_TREE_INSTRUCTION_LINES = Object.freeze([
+  'The root directory is represented by Directory:"." - If the launch file is picked from this directory, just include the relativePath verbatim.',
+  "Only choose a launch file from an exact relativePath value shown below.",
+  "Directory names and file names are JSON-quoted so spaces and punctuation are significant.",
+]);
+const LAUNCH_FILE_SYSTEM_PROMPT = `You select the launch file for Invivo dental imaging cases.
+
+Return only strict JSON in this exact shape:
+{"path":"relative/path/to/launch-file"}
+
+- Do not explain your choice. Do not include markdown or any text before or after the JSON.
+- The first character of your response must be "{" and the last character must be "}".
+- Choose the single most likely FILE the radiologist should open.
+- Do not choose a directory, always choose a FILE.
+- The returned path must exactly match one of the values from a "- relativePath:" file line, never a Directory name or only the containing folder.
+- "." is never a valid answer. If the selected file is in Directory ".", return that file's relativePath value, such as "scan.dcm".
+- Return the relativePath string contents only, without the surrounding JSON quotes shown in the directory listing.
+- Apply these rules in order:
+  1. If any directory contains hundreds of likely image files, choose from that image-series directory instead of small utility, viewer software, layout, resource, or COMP directories, even when a utility file is larger.
+  2. For a directory with hundreds of likely image files, ignore sizeBytes and choose the file with the lowest index among its siblings. For example between DCM_00000.dcm and DCM_00012.dcm, choose DCM_00000.dcm. Return the full relativePath of the chosen file, not the directory path.
+  3. For a directory with fewer than 10 total files made of large scan data files plus XML sidecar files, ignore the XML files and choose the non-XML scan data file with the greatest numeric sizeBytes value. In this small-bundle case, compare the sizeBytes numbers before answering; sizeBytes overrides numbered order, so do not choose CT0 just because it appears first. For example if CT0 is 20MB, CT1 is 90MB, and CT2 is 48MB, choose CT1.
+- Final check before replying: the path in your JSON must be copied exactly from a "- relativePath:" line. If you selected a Directory line or a folder path, replace it with the correct file relativePath from that directory.
+`;
 const activeDownloadAgentWork = new Map();
 const caseStateUpdateQueues = new Map();
 
@@ -361,6 +384,18 @@ function getCandidateManagedRoots(preferredRoot = null) {
     getManagedTempRoot(""),
     ...listWslWindowsManagedTempRoots(),
   ]);
+}
+
+async function deleteDownloadAgentTempRoots() {
+  const roots = getCandidateManagedRoots();
+
+  activeDownloadAgentWork.clear();
+
+  for (const root of roots) {
+    await fs.promises.rm(root, { recursive: true, force: true });
+  }
+
+  return roots;
 }
 
 function readCaseStateRecord(caseKey, managedRoot) {
@@ -1025,13 +1060,7 @@ function pickRepresentativeFileEntries(files, maxFilesPerDirectory) {
 }
 
 async function buildLlmAbridgedTree(rootDir) {
-  const lines = [
-    'The root directory is represented by Directory:"." - If the launch file is picked from this directory, just include the relativePath verbatim.',
-    "Only choose a launch file from an exact relativePath value shown below.",
-    "Directory names and file names are JSON-quoted so spaces and punctuation are significant.",
-    "",
-    "",
-  ];
+  const lines = [...LLM_TREE_INSTRUCTION_LINES, "", ""];
   const maxFilesPerDirectory = 12;
   const maxDirectories = 5;
   const directories = [];
@@ -1113,6 +1142,12 @@ async function buildLlmAbridgedTree(rootDir) {
   return lines.join("\n").trim();
 }
 
+function buildLaunchFileSelectionTree(directoryListing) {
+  const listing = String(directoryListing || "").trim();
+
+  return [...LLM_TREE_INSTRUCTION_LINES, "", "", listing].join("\n").trim();
+}
+
 function parseStrictJsonObject(value) {
   const text = String(value || "").trim();
   const jsonStart = text.indexOf("{");
@@ -1125,40 +1160,66 @@ function parseStrictJsonObject(value) {
   return JSON.parse(text.slice(jsonStart, jsonEnd + 1));
 }
 
-async function chooseLaunchFileWithOllama(extractDir) {
-  const tree = await buildLlmAbridgedTree(extractDir);
-  const systemPrompt = `You select the launch file for Invivo dental imaging cases.
+function normalizeLaunchFileSelectionResult(result) {
+  if (typeof result.path !== "string" || result.path.trim() === "") {
+    throw new Error("LLM response did not include a path");
+  }
 
-Return only strict JSON in this exact shape:
-{"path":"relative/path/to/launch-file"}
+  const relativeLaunchPath = result.path.trim().replace(/\\/g, "/");
 
-- Choose the single most likely FILE the radiologist should open.
-- Do not choose a directory, always choose a FILE.
-- The most likely launch file is a numbered file that exists next to a lot of other numbered files. These are DICOM slices.
-- The path must exactly match one relativePath value for a FILE from the given directory tree. 
-`;
+  if (
+    path.isAbsolute(relativeLaunchPath) ||
+    path.win32.isAbsolute(relativeLaunchPath)
+  ) {
+    throw new Error("LLM returned an absolute path");
+  }
 
+  return { path: relativeLaunchPath };
+}
+
+function formatLaunchFileSelectionJson(value) {
+  const parsed = typeof value === "string" ? parseStrictJsonObject(value) : value;
+  const result = normalizeLaunchFileSelectionResult(parsed);
+
+  return JSON.stringify(result, null, 2);
+}
+
+function createLaunchFileSelectionMessages(tree) {
+  const systemPrompt = LAUNCH_FILE_SYSTEM_PROMPT;
   const userMessage = `Directory tree:
 ${tree}`;
-  const ollamaRequest = {
-    model: OLLAMA_MODEL,
+
+  return {
+    systemPrompt,
+    userMessage,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userMessage },
     ],
+  };
+}
+
+function createLaunchFileSelectionRequest(tree) {
+  const { messages } = createLaunchFileSelectionMessages(tree);
+
+  return {
+    model: OLLAMA_MODEL,
+    messages,
     temperature: 0,
     max_tokens: 200,
     stream: false,
   };
+}
 
-  console.log("[DA][Ollama] Request", {
-    url: OLLAMA_CHAT_COMPLETIONS_URL,
-    model: OLLAMA_MODEL,
-    extractDir,
-  });
-  console.log("[DA][Ollama] System prompt\n" + systemPrompt);
-  console.log("[DA][Ollama] User message\n" + userMessage);
-  const response = await fetch(OLLAMA_CHAT_COMPLETIONS_URL, {
+async function requestOllamaCompletionText(
+  ollamaRequest,
+  {
+    url = OLLAMA_CHAT_COMPLETIONS_URL,
+    fetchImpl = fetch,
+    logger = console,
+  } = {},
+) {
+  const response = await fetchImpl(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1166,7 +1227,7 @@ ${tree}`;
     body: JSON.stringify(ollamaRequest),
   });
 
-  console.log("[DA][Ollama] HTTP response", {
+  logger?.log?.("[DA][Ollama] HTTP response", {
     status: response.status,
     ok: response.ok,
   });
@@ -1176,21 +1237,37 @@ ${tree}`;
   }
 
   const body = await response.json();
-  console.log("[DA][Ollama] Response body", body);
+  logger?.log?.("[DA][Ollama] Response body", body);
   const text = body?.choices?.[0]?.message?.content ?? body?.choices?.[0]?.text;
-  console.log("[DA][Ollama] Completion text", text);
+  logger?.log?.("[DA][Ollama] Completion text", text);
+
+  return text;
+}
+
+async function chooseLaunchFileFromTreeWithOllama(tree, options = {}) {
+  const logger = options.logger ?? console;
+  const ollamaRequest = createLaunchFileSelectionRequest(tree);
+  const text = await requestOllamaCompletionText(ollamaRequest, options);
   const result = parseStrictJsonObject(text);
-  console.log("[DA][Ollama] Parsed JSON", result);
 
-  if (typeof result.path !== "string" || result.path.trim() === "") {
-    throw new Error("LLM response did not include a path");
-  }
+  logger?.log?.("[DA][Ollama] Parsed JSON", result);
 
-  const relativeLaunchPath = result.path.trim().replace(/\\/g, "/");
+  return normalizeLaunchFileSelectionResult(result);
+}
 
-  if (path.isAbsolute(relativeLaunchPath)) {
-    throw new Error("LLM returned an absolute path");
-  }
+async function chooseLaunchFileWithOllama(extractDir) {
+  const tree = await buildLlmAbridgedTree(extractDir);
+  const { systemPrompt, userMessage } = createLaunchFileSelectionMessages(tree);
+
+  console.log("[DA][Ollama] Request", {
+    url: OLLAMA_CHAT_COMPLETIONS_URL,
+    model: OLLAMA_MODEL,
+    extractDir,
+  });
+  console.log("[DA][Ollama] System prompt\n" + systemPrompt);
+  console.log("[DA][Ollama] User message\n" + userMessage);
+  const result = await chooseLaunchFileFromTreeWithOllama(tree);
+  const relativeLaunchPath = result.path;
 
   const launchFilePath = path.resolve(extractDir, relativeLaunchPath);
 
@@ -1616,6 +1693,19 @@ function createDownloadAgentStateHandler() {
   };
 }
 
+function createDownloadAgentTempClearHandler() {
+  return async (req, res) => {
+    try {
+      const deletedRoots = await deleteDownloadAgentTempRoots();
+
+      res.json({ ok: true, deletedRoots });
+    } catch (error) {
+      console.error("[DA] Failed to delete temp directory:", error);
+      res.status(500).json({ error: error.message });
+    }
+  };
+}
+
 function createApp({ templateDir = DEFAULT_TEMPLATE_DIR } = {}) {
   const app = express();
 
@@ -1628,6 +1718,7 @@ function createApp({ templateDir = DEFAULT_TEMPLATE_DIR } = {}) {
   app.post("/download-agent/complete", createDownloadAgentCompleteHandler());
   app.post("/download-agent/fail", createDownloadAgentFailHandler());
   app.post("/download-agent/open", createDownloadAgentOpenHandler());
+  app.post("/download-agent/temp/clear", createDownloadAgentTempClearHandler());
   app.get("/download-agent/state", createDownloadAgentStateHandler());
 
   return app;
@@ -1641,8 +1732,16 @@ if (require.main === module) {
 
 module.exports = {
   DOCX_MIME,
+  buildLaunchFileSelectionTree,
+  chooseLaunchFileFromTreeWithOllama,
   createApp,
+  createLaunchFileSelectionMessages,
+  createLaunchFileSelectionRequest,
+  formatLaunchFileSelectionJson,
   listTemplates,
+  normalizeLaunchFileSelectionResult,
+  parseStrictJsonObject,
   renderDocument,
+  requestOllamaCompletionText,
   resolveTemplatePath,
 };

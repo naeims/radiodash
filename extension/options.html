@@ -11,6 +11,8 @@
         --surface: #ffffff;
         --surface-soft: #f6f8fa;
         --accent: #2f5f8f;
+        --danger: #a43d3d;
+        --danger-hover: #8f3131;
       }
 
       * {
@@ -51,6 +53,10 @@
         border: 1px solid var(--line);
         border-radius: 6px;
         background: var(--surface-soft);
+      }
+
+      .setting-row + .setting-row {
+        margin-top: 10px;
       }
 
       .setting-title {
@@ -118,6 +124,37 @@
         outline-offset: 2px;
       }
 
+      button {
+        min-width: 110px;
+        border: 0;
+        border-radius: 6px;
+        padding: 8px 12px;
+        color: #fff;
+        background: var(--danger);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:hover:not([disabled]) {
+        background: var(--danger-hover);
+      }
+
+      button:active:not([disabled]) {
+        transform: translateY(1px);
+      }
+
+      button:focus-visible {
+        outline: 2px solid #d88d8d;
+        outline-offset: 2px;
+      }
+
+      button[disabled] {
+        cursor: default;
+        opacity: 0.65;
+      }
+
       .status {
         min-height: 16px;
         margin-top: 10px;
@@ -143,6 +180,15 @@
           />
           <span class="slider" aria-hidden="true"></span>
         </label>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-title">Download agent temp directory</div>
+          <div class="setting-description">
+            Delete the managed temp directory used for prepared case files.
+          </div>
+        </div>
+        <button id="delete-temp-button" type="button">Delete temp</button>
       </div>
       <div id="settings-status" class="status" aria-live="polite"></div>
     </main>

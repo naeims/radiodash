@@ -1,6 +1,7 @@
 <!doctype html>
 <html>
   <head>
+    <meta charset="utf-8" />
     <style>
       :root {
         --ink: #24313d;
@@ -106,31 +107,21 @@
         border-bottom: none;
       }
 
-      .download-agent-toolbar {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 10px;
-        border-bottom: 1px solid var(--line);
-        background: var(--surface-soft);
-      }
-
-      .download-agent-status {
-        color: var(--muted);
-        font-size: 12px;
-        line-height: 1.3;
-      }
-
       .small-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         border: 1px solid rgba(255, 255, 255, 0.26);
         border-radius: 4px;
         background: rgba(255, 255, 255, 0.06);
         color: #dce4ea;
         cursor: pointer;
-        font-size: 12px;
+        font-size: 15px;
         font-weight: 600;
+        line-height: 1;
+        min-width: 28px;
         min-height: 28px;
-        padding: 0 8px;
+        padding: 0;
         transition:
           background-color 0.16s ease,
           border-color 0.16s ease,
@@ -253,18 +244,23 @@
     <div class="section-header">
       <h2 class="section-title">Download Agent</h2>
       <div class="section-actions">
-        <button id="download-agent-settings" class="small-button">
-          Settings
+        <button
+          id="download-agent-settings"
+          class="small-button"
+          title="Settings"
+          aria-label="Settings"
+        >
+          &#9881;
         </button>
-        <button id="download-agent-refresh" class="small-button">
-          Refresh
+        <button
+          id="download-agent-refresh"
+          class="small-button"
+          title="Refresh"
+          aria-label="Refresh"
+        >
+          &#8635;
         </button>
       </div>
-    </div>
-    <div class="download-agent-toolbar">
-      <span id="download-agent-status" class="download-agent-status"
-        >Loading</span
-      >
     </div>
     <div id="download-agent-files"></div>
     <script src="popup.js"></script>

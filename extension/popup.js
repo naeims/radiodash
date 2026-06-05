@@ -129,7 +129,11 @@ async function loadDownloadAgentFiles(options = {}) {
 }
 
 function setDownloadAgentStatus(text) {
-  document.getElementById("download-agent-status").textContent = text;
+  const status = document.getElementById("download-agent-status");
+
+  if (status) {
+    status.textContent = text;
+  }
 }
 
 function renderDownloadAgentFiles(files) {

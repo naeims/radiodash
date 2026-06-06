@@ -40,20 +40,26 @@ const LLM_TREE_INSTRUCTION_LINES = Object.freeze([
 const LAUNCH_FILE_SYSTEM_PROMPT = `You select the launch file for Invivo dental imaging cases.
 
 Return only strict JSON in this exact shape:
-{"path":"relative/path/to/launch-file"}
+{"paths":["relative/path/to/launch-file"]}
 
 - Do not explain your choice. Do not include markdown or any text before or after the JSON.
 - The first character of your response must be "{" and the last character must be "}".
-- Choose the single most likely FILE the radiologist should open.
+- Usually choose exactly one FILE: the single most likely file the radiologist should open.
+- Return multiple paths only when the listing shows multiple separate image-series directories that each contain hundreds of likely image files. If there is only one such image-series directory, return one path.
+- When returning multiple paths, choose one representative launch file per distinct scan using the same rules below. Do not return multiple files from one image series.
+- Multiple sibling or parallel directories that each contain hundreds of likely image files should be treated as separate scans unless the listing clearly shows one is only nested inside the other. Do not collapse separate image-series directories into one answer just because they share a parent directory.
+- Before writing JSON, count the separate image-series directories shown in the listing. Image-series directories usually have fileCount in the hundreds and fileTypes made of likely image files such as .dcm or no-extension DICOM slices. If this count is greater than 1, the "paths" array must contain exactly one representative file from each counted image-series directory.
 - Do not choose a directory, always choose a FILE.
-- The returned path must exactly match one of the values from a "- relativePath:" file line, never a Directory name or only the containing folder.
-- "." is never a valid answer. If the selected file is in Directory ".", return that file's relativePath value, such as "scan.dcm".
+- Each returned path must exactly match one of the values from a "- relativePath:" file line, never a Directory name or only the containing folder.
+- Copy returned path strings character-for-character from the relativePath value, preserving every space, comma, hyphen, and punctuation mark.
+- "." is never a valid answer. If a selected file is in Directory ".", return that file's relativePath value, such as "scan.dcm".
 - Return the relativePath string contents only, without the surrounding JSON quotes shown in the directory listing.
 - Apply these rules in order:
   1. If any directory contains hundreds of likely image files, choose from that image-series directory instead of small utility, viewer software, layout, resource, or COMP directories, even when a utility file is larger.
-  2. For a directory with hundreds of likely image files, ignore sizeBytes and choose the file with the lowest index among its siblings. For example between DCM_00000.dcm and DCM_00012.dcm, choose DCM_00000.dcm. Return the full relativePath of the chosen file, not the directory path.
+  2. For each selected directory with hundreds of likely image files, ignore sizeBytes and choose the first listed likely image file in that directory: the first "- relativePath:" file line shown under that directory's "- files:" section. Do not choose a later file because it is larger, shorter, or has a number that looks similar after removing leading zeros. For example between I0000000 and I0000010, choose I0000000; between DCM_00000.dcm and DCM_00012.dcm, choose DCM_00000.dcm. Return the full relativePath of the chosen file, not the directory path.
   3. For a directory with fewer than 10 total files made of large scan data files plus XML sidecar files, ignore the XML files and choose the non-XML scan data file with the greatest numeric sizeBytes value. In this small-bundle case, compare the sizeBytes numbers before answering; sizeBytes overrides numbered order, so do not choose CT0 just because it appears first. For example if CT0 is 20MB, CT1 is 90MB, and CT2 is 48MB, choose CT1.
-- Final check before replying: the path in your JSON must be copied exactly from a "- relativePath:" line. If you selected a Directory line or a folder path, replace it with the correct file relativePath from that directory.
+- Cardinality example: if the listing has Directory "Case/Scan A" with fileCount 600 and first file "Case/Scan A/A000.dcm", and also Directory "Case/Scan B" with fileCount 600 and first file "Case/Scan B/B000.dcm", return {"paths":["Case/Scan A/A000.dcm","Case/Scan B/B000.dcm"]}. If there is only one image-series directory, return a one-element paths array.
+- Final check before replying: every path in your JSON must be copied exactly from a "- relativePath:" line. If you selected a Directory line or a folder path, replace it with the correct file relativePath from that directory.
 `;
 const activeDownloadAgentWork = new Map();
 const caseStateUpdateQueues = new Map();
@@ -565,7 +571,10 @@ function resetFileStateToNotDownloaded(fileState) {
   fileState.error = null;
   fileState.sourceFilePath = null;
   fileState.launchFilePath = null;
+  fileState.launchFilePaths = null;
   fileState.launchFileUrl = null;
+  fileState.launchFileUrls = null;
+  fileState.launchFileLabels = null;
   fileState.managedFilePath = null;
   fileState.updatedAt = nowIso();
 }
@@ -582,15 +591,76 @@ function fileExists(filePath) {
   }
 }
 
+function getFileStateLaunchFilePaths(fileState) {
+  if (Array.isArray(fileState.launchFilePaths)) {
+    return fileState.launchFilePaths.filter(
+      (filePath) => typeof filePath === "string" && filePath.trim() !== "",
+    );
+  }
+
+  if (
+    typeof fileState.launchFilePath === "string" &&
+    fileState.launchFilePath.trim() !== ""
+  ) {
+    return [fileState.launchFilePath];
+  }
+
+  return [];
+}
+
+function getFileStateLaunchFileUrls(fileState) {
+  if (Array.isArray(fileState.launchFileUrls)) {
+    return fileState.launchFileUrls.filter(
+      (fileUrl) => typeof fileUrl === "string" && fileUrl.trim() !== "",
+    );
+  }
+
+  if (
+    typeof fileState.launchFileUrl === "string" &&
+    fileState.launchFileUrl.trim() !== ""
+  ) {
+    return [fileState.launchFileUrl];
+  }
+
+  return getFileStateLaunchFilePaths(fileState).map(pathToFileUrl);
+}
+
+function getFileStateLaunchFileLabels(fileState) {
+  if (Array.isArray(fileState.launchFileLabels)) {
+    return fileState.launchFileLabels.map((label) =>
+      typeof label === "string" && label.trim() !== "" ? label.trim() : null,
+    );
+  }
+
+  return [];
+}
+
+function createLaunchFileChoices(fileState) {
+  const paths = getFileStateLaunchFilePaths(fileState);
+  const urls = getFileStateLaunchFileUrls(fileState);
+  const labels = getFileStateLaunchFileLabels(fileState);
+
+  return paths.map((filePath, index) => ({
+    index,
+    label: labels[index] || path.basename(filePath) || `Scan ${index + 1}`,
+    launchFileUrl: urls[index] || pathToFileUrl(filePath),
+  }));
+}
+
 function refreshFileStateFromDisk(state, fileId, fileState) {
   if (fileState.status === DA_STATUS.READY) {
-    if (fileExists(fileState.launchFilePath)) {
+    const launchFilePaths = getFileStateLaunchFilePaths(fileState);
+
+    if (
+      launchFilePaths.length > 0 &&
+      launchFilePaths.every((launchFilePath) => fileExists(launchFilePath))
+    ) {
       return false;
     }
 
     console.log("[DA] Ready launch file missing; removing persisted state", {
       fileId: fileState.fileId,
-      launchFilePath: fileState.launchFilePath,
+      launchFilePaths,
     });
     delete state.files[fileId];
     return true;
@@ -611,12 +681,23 @@ function refreshFileStateFromDisk(state, fileId, fileState) {
 
   if (
     fileState.status === DA_STATUS.FAILED &&
-    fileExists(fileState.launchFilePath)
+    getFileStateLaunchFilePaths(fileState).every((launchFilePath) =>
+      fileExists(launchFilePath),
+    )
   ) {
+    const launchFilePaths = getFileStateLaunchFilePaths(fileState);
+
+    if (launchFilePaths.length === 0) {
+      return false;
+    }
+
     fileState.status = DA_STATUS.READY;
     fileState.phase = "ready";
     fileState.error = null;
-    fileState.launchFileUrl = pathToFileUrl(fileState.launchFilePath);
+    fileState.launchFilePath = launchFilePaths[0];
+    fileState.launchFilePaths = launchFilePaths;
+    fileState.launchFileUrl = pathToFileUrl(launchFilePaths[0]);
+    fileState.launchFileUrls = launchFilePaths.map(pathToFileUrl);
     fileState.updatedAt = nowIso();
     return true;
   }
@@ -654,6 +735,8 @@ function stateForResponse(state) {
           phase: fileState.phase || null,
           error: fileState.error || null,
           launchFileUrl: fileState.launchFileUrl || null,
+          launchFileUrls: getFileStateLaunchFileUrls(fileState),
+          launchFiles: createLaunchFileChoices(fileState),
           updatedAt: fileState.updatedAt || null,
         },
       ]),
@@ -1160,12 +1243,12 @@ function parseStrictJsonObject(value) {
   return JSON.parse(text.slice(jsonStart, jsonEnd + 1));
 }
 
-function normalizeLaunchFileSelectionResult(result) {
-  if (typeof result.path !== "string" || result.path.trim() === "") {
-    throw new Error("LLM response did not include a path");
+function normalizeLaunchFileSelectionPath(value) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error("LLM response included an empty path");
   }
 
-  const relativeLaunchPath = result.path.trim().replace(/\\/g, "/");
+  const relativeLaunchPath = value.trim().replace(/\\/g, "/");
 
   if (
     path.isAbsolute(relativeLaunchPath) ||
@@ -1174,11 +1257,42 @@ function normalizeLaunchFileSelectionResult(result) {
     throw new Error("LLM returned an absolute path");
   }
 
-  return { path: relativeLaunchPath };
+  return relativeLaunchPath;
+}
+
+function normalizeLaunchFileSelectionResult(result) {
+  const rawPaths = Array.isArray(result.paths)
+    ? result.paths
+    : typeof result.path === "string"
+      ? [result.path]
+      : null;
+
+  if (!rawPaths || rawPaths.length === 0) {
+    throw new Error("LLM response did not include paths");
+  }
+
+  const seen = new Set();
+  const paths = [];
+
+  rawPaths.forEach((rawPath) => {
+    const relativeLaunchPath = normalizeLaunchFileSelectionPath(rawPath);
+
+    if (!seen.has(relativeLaunchPath)) {
+      seen.add(relativeLaunchPath);
+      paths.push(relativeLaunchPath);
+    }
+  });
+
+  if (paths.length === 0) {
+    throw new Error("LLM response did not include paths");
+  }
+
+  return { paths };
 }
 
 function formatLaunchFileSelectionJson(value) {
-  const parsed = typeof value === "string" ? parseStrictJsonObject(value) : value;
+  const parsed =
+    typeof value === "string" ? parseStrictJsonObject(value) : value;
   const result = normalizeLaunchFileSelectionResult(parsed);
 
   return JSON.stringify(result, null, 2);
@@ -1206,7 +1320,7 @@ function createLaunchFileSelectionRequest(tree) {
     model: OLLAMA_MODEL,
     messages,
     temperature: 0,
-    max_tokens: 200,
+    max_tokens: 300,
     stream: false,
   };
 }
@@ -1255,7 +1369,7 @@ async function chooseLaunchFileFromTreeWithOllama(tree, options = {}) {
   return normalizeLaunchFileSelectionResult(result);
 }
 
-async function chooseLaunchFileWithOllama(extractDir) {
+async function chooseLaunchFilesWithOllama(extractDir) {
   const tree = await buildLlmAbridgedTree(extractDir);
   const { systemPrompt, userMessage } = createLaunchFileSelectionMessages(tree);
 
@@ -1267,22 +1381,35 @@ async function chooseLaunchFileWithOllama(extractDir) {
   console.log("[DA][Ollama] System prompt\n" + systemPrompt);
   console.log("[DA][Ollama] User message\n" + userMessage);
   const result = await chooseLaunchFileFromTreeWithOllama(tree);
-  const relativeLaunchPath = result.path;
+  const launchFiles = result.paths.map((relativeLaunchPath) => {
+    const launchFilePath = path.resolve(extractDir, relativeLaunchPath);
 
-  const launchFilePath = path.resolve(extractDir, relativeLaunchPath);
+    assertInside(extractDir, launchFilePath);
 
-  assertInside(extractDir, launchFilePath);
+    if (
+      !fs.existsSync(launchFilePath) ||
+      !fs.statSync(launchFilePath).isFile()
+    ) {
+      throw new Error(`LLM selected a missing file: ${relativeLaunchPath}`);
+    }
 
-  if (!fs.existsSync(launchFilePath) || !fs.statSync(launchFilePath).isFile()) {
-    throw new Error(`LLM selected a missing file: ${relativeLaunchPath}`);
-  }
-
-  console.log("[DA][Ollama] Selected launch file", {
-    relativeLaunchPath,
-    launchFilePath,
+    return {
+      relativeLaunchPath,
+      launchFilePath,
+    };
   });
 
-  return launchFilePath;
+  console.log("[DA][Ollama] Selected launch files", {
+    launchFiles,
+  });
+
+  return launchFiles;
+}
+
+async function chooseLaunchFileWithOllama(extractDir) {
+  const [launchFile] = await chooseLaunchFilesWithOllama(extractDir);
+
+  return launchFile.launchFilePath;
 }
 
 async function prepareDownloadedFile(file, downloadedFilePath) {
@@ -1323,7 +1450,12 @@ async function prepareDownloadedFile(file, downloadedFilePath) {
     );
 
     const extension = path.extname(workManagedSourcePath).toLowerCase();
-    let workLaunchFilePath = workManagedSourcePath;
+    let workLaunchFiles = [
+      {
+        relativeLaunchPath: path.basename(workManagedSourcePath),
+        launchFilePath: workManagedSourcePath,
+      },
+    ];
 
     if (extension === ".zip") {
       console.log("[DA] Extracting zip into managed temp work dir", {
@@ -1332,7 +1464,7 @@ async function prepareDownloadedFile(file, downloadedFilePath) {
       });
       await extractZipSafely(workManagedSourcePath, extractDir);
       await extractNestedZipsInPlace(extractDir);
-      workLaunchFilePath = await chooseLaunchFileWithOllama(extractDir);
+      workLaunchFiles = await chooseLaunchFilesWithOllama(extractDir);
     } else {
       console.log("[DA] Using downloaded file directly as launch file", {
         managedSourcePath: workManagedSourcePath,
@@ -1347,17 +1479,21 @@ async function prepareDownloadedFile(file, downloadedFilePath) {
       workDir,
       fileDir,
     );
-    const launchFilePath = rebasePreparedPath(
-      workLaunchFilePath,
-      workDir,
-      fileDir,
+    const launchFilePaths = workLaunchFiles.map((launchFile) =>
+      rebasePreparedPath(launchFile.launchFilePath, workDir, fileDir),
     );
+    const launchFileUrls = launchFilePaths.map(pathToFileUrl);
 
     return {
       managedRoot,
       managedFilePath,
-      launchFilePath,
-      launchFileUrl: pathToFileUrl(launchFilePath),
+      launchFilePath: launchFilePaths[0],
+      launchFilePaths,
+      launchFileUrl: launchFileUrls[0],
+      launchFileUrls,
+      launchFileLabels: workLaunchFiles.map(
+        (launchFile) => launchFile.relativeLaunchPath,
+      ),
     };
   } catch (error) {
     await fs.promises
@@ -1459,7 +1595,10 @@ async function runDownloadAgentPreparation(
       fileState.sourceFilePath = normalizeDownloadedPath(downloadedFilePath);
       fileState.managedFilePath = prepared.managedFilePath;
       fileState.launchFilePath = prepared.launchFilePath;
+      fileState.launchFilePaths = prepared.launchFilePaths;
       fileState.launchFileUrl = prepared.launchFileUrl;
+      fileState.launchFileUrls = prepared.launchFileUrls;
+      fileState.launchFileLabels = prepared.launchFileLabels;
       fileState.error = null;
       fileState.updatedAt = nowIso();
     });
@@ -1467,7 +1606,8 @@ async function runDownloadAgentPreparation(
     console.log("[DA] File ready", {
       fileId: file.fileId,
       launchFilePath: prepared.launchFilePath,
-      launchFileUrl: prepared.launchFileUrl,
+      launchFilePaths: prepared.launchFilePaths,
+      launchFileUrls: prepared.launchFileUrls,
     });
   } catch (error) {
     console.error("[DA] Preparation failed:", error);
@@ -1534,7 +1674,11 @@ function createDownloadAgentJobHandler() {
         fileState.status = DA_STATUS.PREPARING;
         fileState.phase = "downloading";
         fileState.error = null;
+        fileState.launchFilePath = null;
+        fileState.launchFilePaths = null;
         fileState.launchFileUrl = null;
+        fileState.launchFileUrls = null;
+        fileState.launchFileLabels = null;
         fileState.updatedAt = nowIso();
       });
 
@@ -1565,6 +1709,11 @@ function createDownloadAgentCompleteHandler() {
         fileState.status = DA_STATUS.PREPARING;
         fileState.phase = "unpacking";
         fileState.error = null;
+        fileState.launchFilePath = null;
+        fileState.launchFilePaths = null;
+        fileState.launchFileUrl = null;
+        fileState.launchFileUrls = null;
+        fileState.launchFileLabels = null;
         fileState.updatedAt = nowIso();
       });
 
@@ -1626,6 +1775,12 @@ function createDownloadAgentOpenHandler() {
       return;
     }
 
+    const launchFileIndex =
+      Number.isInteger(req.body?.launchFileIndex) &&
+      req.body.launchFileIndex >= 0
+        ? req.body.launchFileIndex
+        : 0;
+
     try {
       const readyFile = await updateCaseState(file.caseKey, null, (state) => {
         refreshCaseStateFromDisk(state);
@@ -1635,13 +1790,26 @@ function createDownloadAgentOpenHandler() {
           return null;
         }
 
+        const launchFilePaths = getFileStateLaunchFilePaths(fileState);
+
+        if (launchFileIndex >= launchFilePaths.length) {
+          return {
+            error: `Launch file option ${launchFileIndex + 1} is not available`,
+          };
+        }
+
         return {
-          launchFilePath: fileState.launchFilePath,
+          launchFilePath: launchFilePaths[launchFileIndex],
         };
       });
 
       if (!readyFile) {
         res.status(409).json({ error: "File is not ready to view" });
+        return;
+      }
+
+      if (readyFile.error) {
+        res.status(400).json({ error: readyFile.error });
         return;
       }
 
@@ -1653,10 +1821,12 @@ function createDownloadAgentOpenHandler() {
 
         if (error.message === "Prepared launch file is missing") {
           await updateCaseState(file.caseKey, null, (state) => {
-            if (
-              state.files[file.fileId]?.launchFilePath ===
-              readyFile.launchFilePath
-            ) {
+            const fileState = state.files[file.fileId];
+            const launchFilePaths = fileState
+              ? getFileStateLaunchFilePaths(fileState)
+              : [];
+
+            if (launchFilePaths.includes(readyFile.launchFilePath)) {
               delete state.files[file.fileId];
             }
           });
@@ -1734,6 +1904,7 @@ module.exports = {
   DOCX_MIME,
   buildLaunchFileSelectionTree,
   chooseLaunchFileFromTreeWithOllama,
+  chooseLaunchFilesWithOllama,
   createApp,
   createLaunchFileSelectionMessages,
   createLaunchFileSelectionRequest,

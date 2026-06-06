@@ -14,7 +14,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     generate_document: () => handleGenerateDocument(request),
     get_download_agent_files: () => getDownloadAgentFiles(),
     prepare_download_agent_file: () => prepareDownloadAgentFile(request.file),
-    view_download_agent_file: () => viewDownloadAgentFile(request.file),
+    view_download_agent_file: () =>
+      viewDownloadAgentFile(request.file, request.launchFileIndex),
     get_auto_prepare_setting: () => getAutoPrepareSetting(),
     set_auto_prepare_setting: () => setAutoPrepareSetting(request.enabled),
     delete_download_agent_temp: () => deleteDownloadAgentTemp(),
@@ -146,6 +147,10 @@ async function inspectDownloadAgentFilesInTab(tabId, tabUrl) {
         phase: state.phase || null,
         error: state.error || null,
         launchFileUrl: state.launchFileUrl || null,
+        launchFileUrls: Array.isArray(state.launchFileUrls)
+          ? state.launchFileUrls
+          : [],
+        launchFiles: Array.isArray(state.launchFiles) ? state.launchFiles : [],
         updatedAt: state.updatedAt || null,
       };
     })
@@ -392,7 +397,7 @@ async function getAutoPrepareEnabled() {
   return enabled !== false;
 }
 
-async function viewDownloadAgentFile(file) {
+async function viewDownloadAgentFile(file, launchFileIndex = 0) {
   if (!file?.caseKey || !file?.fileId) {
     throw new Error("Invalid Download Agent file payload");
   }
@@ -405,7 +410,10 @@ async function viewDownloadAgentFile(file) {
 
   return {
     ok: true,
-    ...(await postJson("/download-agent/open", file)),
+    ...(await postJson("/download-agent/open", {
+      ...file,
+      launchFileIndex,
+    })),
   };
 }
 

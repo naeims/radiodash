@@ -142,7 +142,7 @@
 
       .download-agent-row {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 96px;
+        grid-template-columns: minmax(0, 1fr) 104px;
         align-items: center;
         gap: 10px;
         min-height: 48px;
@@ -167,7 +167,7 @@
         white-space: normal;
       }
 
-      .download-agent-row button {
+      .download-agent-action-button {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -181,6 +181,7 @@
         font-weight: 700;
         height: 32px;
         padding: 0 10px;
+        width: 100%;
         transition:
           background-color 0.16s ease,
           border-color 0.16s ease,
@@ -188,38 +189,89 @@
           transform 0.08s ease;
       }
 
-      .download-agent-row button:hover:not([disabled]) {
+      .download-agent-action-button:hover:not([disabled]) {
         background: var(--prepare-hover);
         box-shadow: 0 1px 3px rgba(30, 42, 54, 0.2);
       }
 
-      .download-agent-row button:active:not([disabled]) {
+      .download-agent-action-button:active:not([disabled]) {
         transform: translateY(1px);
         box-shadow: none;
       }
 
-      .download-agent-row button.action-view {
+      .download-agent-action-button.action-view {
         background: var(--view);
       }
 
-      .download-agent-row button.action-view:hover:not([disabled]) {
+      .download-agent-action-button.action-view:hover:not([disabled]) {
         background: var(--view-hover);
       }
 
-      .download-agent-row button.action-retry {
+      .download-agent-action-button.action-retry {
         background: #6c5a35;
       }
 
-      .download-agent-row button.action-retry:hover:not([disabled]) {
+      .download-agent-action-button.action-retry:hover:not([disabled]) {
         background: #594a2d;
       }
 
-      .download-agent-row button[disabled] {
+      .download-agent-action-button[disabled] {
         cursor: default;
         border-color: #cfd8df;
         background: #edf1f4;
         color: #687786;
         opacity: 1;
+      }
+
+      .view-dropdown {
+        position: relative;
+        width: 100%;
+      }
+
+      .view-dropdown-caret {
+        font-size: 10px;
+        line-height: 1;
+      }
+
+      .view-dropdown-menu {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 4px);
+        z-index: 5;
+        width: 230px;
+        max-width: calc(100vw - 22px);
+        padding: 4px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--surface);
+        box-shadow: 0 6px 18px rgba(30, 42, 54, 0.22);
+      }
+
+      .view-dropdown-menu[hidden] {
+        display: none;
+      }
+
+      .view-dropdown-option {
+        display: block;
+        width: 100%;
+        min-height: 30px;
+        border: none;
+        border-radius: 3px;
+        background: transparent;
+        color: var(--ink);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.25;
+        overflow: hidden;
+        padding: 7px 8px;
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .view-dropdown-option:hover {
+        background: #eef4f7;
       }
 
       .loading-spinner {

@@ -357,3 +357,60 @@ Directory "."
 
 { "path": "000000000528_20260604122704/SLZ-001.dcm" }
 
+
+### TEST_10
+
+Directory "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025"
+- subdirectoryCount: 0
+- fileCount: 627
+- fileTypes: .dcm: 626, [no extension]: 1
+- files:
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081000.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081001.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081002.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081003.dcm" | sizeBytes: 1334368
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081004.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081005.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081006.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081007.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081008.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081009.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081010.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081011.dcm" | sizeBytes: 1334372
+  - omittedFilesInThisDirectory: 615
+
+Directory "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025"
+- subdirectoryCount: 0
+- fileCount: 627
+- fileTypes: .dcm: 626, [no extension]: 1
+- files:
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081000.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081001.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081002.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081003.dcm" | sizeBytes: 1334366
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081004.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081005.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081006.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081007.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081008.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081009.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081010.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081011.dcm" | sizeBytes: 1334370
+  - omittedFilesInThisDirectory: 615
+
+Directory "."
+- subdirectoryCount: 1
+- fileCount: 0
+
+Directory "Abdul, Jamal"
+- subdirectoryCount: 2
+- fileCount: 0
+
+### EXPECTED_10
+
+{
+  "paths": [
+    "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081000.dcm",
+    "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081000.dcm"
+  ]
+}

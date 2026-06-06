@@ -22,6 +22,12 @@ document.addEventListener("DOMContentLoaded", () => {
       chrome.runtime.openOptionsPage();
     });
 
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".view-dropdown")) {
+      closeViewDropdowns();
+    }
+  });
+
   chrome.runtime.onMessage.addListener((message) => {
     if (
       message.action === "download_agent_state_updated" &&
@@ -166,11 +172,10 @@ function renderDownloadAgentFiles(files) {
       labelWrap.appendChild(error);
     }
 
-    const button = document.createElement("button");
-    configureActionButton(button, file);
+    const action = createActionControl(file);
 
     row.appendChild(labelWrap);
-    row.appendChild(button);
+    row.appendChild(action);
     container.appendChild(row);
   });
 }
@@ -191,26 +196,24 @@ function scheduleDownloadAgentPolling(files) {
   }, DOWNLOAD_AGENT_POLL_INTERVAL_MS);
 }
 
+function createActionControl(file) {
+  if (file.status === "ready" && getLaunchFiles(file).length > 1) {
+    return createViewDropdown(file);
+  }
+
+  const button = document.createElement("button");
+  button.className = "download-agent-action-button";
+  configureActionButton(button, file);
+
+  return button;
+}
+
 function configureActionButton(button, file) {
   if (file.status === "ready") {
     setButtonLabel(button, "View");
     button.classList.add("action-view");
     button.addEventListener("click", async () => {
-      console.log("[DA] Opening launch file through server", file);
-      try {
-        const response = await sendRuntimeMessage({
-          action: "view_download_agent_file",
-          file,
-        });
-
-        if (!response?.ok) {
-          console.error("[DA] View failed:", response?.error);
-          loadDownloadAgentFiles();
-        }
-      } catch (error) {
-        console.error("[DA] View message failed:", error);
-        loadDownloadAgentFiles();
-      }
+      await openLaunchFile(file, 0);
     });
     return;
   }
@@ -254,6 +257,132 @@ function configureActionButton(button, file) {
       loadDownloadAgentFiles();
     }
   });
+}
+
+function getLaunchFiles(file) {
+  if (Array.isArray(file.launchFiles) && file.launchFiles.length > 0) {
+    return file.launchFiles;
+  }
+
+  if (file.launchFileUrl) {
+    return [
+      {
+        index: 0,
+        label: file.fileName || "Scan 1",
+        launchFileUrl: file.launchFileUrl,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function createViewDropdown(file) {
+  const launchFiles = getLaunchFiles(file);
+  const wrapper = document.createElement("div");
+  wrapper.className = "view-dropdown";
+
+  const trigger = document.createElement("button");
+  trigger.className = "download-agent-action-button action-view";
+  trigger.type = "button";
+  trigger.setAttribute("aria-haspopup", "menu");
+  trigger.setAttribute("aria-expanded", "false");
+  setButtonLabel(trigger, "View");
+
+  const caret = document.createElement("span");
+  caret.className = "view-dropdown-caret";
+  caret.setAttribute("aria-hidden", "true");
+  caret.textContent = "\u25be";
+  trigger.appendChild(caret);
+
+  const menu = document.createElement("div");
+  menu.className = "view-dropdown-menu";
+  menu.hidden = true;
+  menu.setAttribute("role", "menu");
+
+  launchFiles.forEach((launchFile, index) => {
+    const option = document.createElement("button");
+    const label = getLaunchFileLabel(launchFile, index);
+
+    option.className = "view-dropdown-option";
+    option.type = "button";
+    option.setAttribute("role", "menuitem");
+    option.textContent = label;
+    option.title = label;
+    option.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      menu.hidden = true;
+      trigger.setAttribute("aria-expanded", "false");
+      await openLaunchFile(file, launchFile.index ?? index);
+    });
+
+    menu.appendChild(option);
+  });
+
+  trigger.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const willOpen = menu.hidden;
+
+    closeViewDropdowns(wrapper);
+    menu.hidden = !willOpen;
+    trigger.setAttribute("aria-expanded", String(willOpen));
+  });
+
+  wrapper.appendChild(trigger);
+  wrapper.appendChild(menu);
+
+  return wrapper;
+}
+
+function closeViewDropdowns(except = null) {
+  document.querySelectorAll(".view-dropdown").forEach((dropdown) => {
+    if (dropdown === except) {
+      return;
+    }
+
+    const menu = dropdown.querySelector(".view-dropdown-menu");
+    const trigger = dropdown.querySelector(".download-agent-action-button");
+
+    if (menu) {
+      menu.hidden = true;
+    }
+
+    if (trigger) {
+      trigger.setAttribute("aria-expanded", "false");
+    }
+  });
+}
+
+function getLaunchFileLabel(launchFile, index) {
+  const label =
+    typeof launchFile.label === "string" && launchFile.label.trim() !== ""
+      ? launchFile.label.trim()
+      : `Scan ${index + 1}`;
+
+  return label;
+}
+
+async function openLaunchFile(file, launchFileIndex) {
+  console.log("[DA] Opening launch file through server", {
+    file,
+    launchFileIndex,
+  });
+
+  try {
+    const response = await sendRuntimeMessage({
+      action: "view_download_agent_file",
+      file,
+      launchFileIndex,
+    });
+
+    if (!response?.ok) {
+      console.error("[DA] View failed:", response?.error);
+      loadDownloadAgentFiles();
+    }
+  } catch (error) {
+    console.error("[DA] View message failed:", error);
+    loadDownloadAgentFiles();
+  }
 }
 
 function setButtonLabel(button, label) {

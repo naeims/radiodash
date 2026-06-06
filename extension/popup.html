@@ -228,9 +228,25 @@
         width: 100%;
       }
 
+      .view-dropdown .download-agent-action-button {
+        position: relative;
+        justify-content: center;
+        padding: 0 28px;
+      }
+
+      .view-dropdown-label {
+        text-align: center;
+      }
+
       .view-dropdown-caret {
-        font-size: 10px;
-        line-height: 1;
+        position: absolute;
+        right: 11px;
+        top: 50%;
+        width: 7px;
+        height: 7px;
+        border-right: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+        transform: translateY(-65%) rotate(45deg);
       }
 
       .view-dropdown-menu {
@@ -238,7 +254,8 @@
         right: 0;
         top: calc(100% + 4px);
         z-index: 5;
-        width: 230px;
+        width: max-content;
+        min-width: 230px;
         max-width: calc(100vw - 22px);
         padding: 4px;
         border: 1px solid var(--line);
@@ -263,11 +280,10 @@
         font-size: 12px;
         font-weight: 600;
         line-height: 1.25;
-        overflow: hidden;
         padding: 7px 8px;
         text-align: left;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        overflow-wrap: anywhere;
+        white-space: normal;
       }
 
       .view-dropdown-option:hover {

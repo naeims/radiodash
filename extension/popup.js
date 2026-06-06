@@ -288,11 +288,11 @@ function createViewDropdown(file) {
   trigger.setAttribute("aria-haspopup", "menu");
   trigger.setAttribute("aria-expanded", "false");
   setButtonLabel(trigger, "View");
+  trigger.firstElementChild?.classList.add("view-dropdown-label");
 
   const caret = document.createElement("span");
   caret.className = "view-dropdown-caret";
   caret.setAttribute("aria-hidden", "true");
-  caret.textContent = "\u25be";
   trigger.appendChild(caret);
 
   const menu = document.createElement("div");

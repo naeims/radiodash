@@ -4,8 +4,11 @@ const DOWNLOAD_AGENT_POLL_INTERVAL_MS = 2000;
 let currentDownloadAgentPayload = null;
 let downloadAgentPollTimer = null;
 let latestDownloadAgentLoadId = 0;
+let showTooltips = true;
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  await loadTooltipsSetting();
+  applyStaticTooltips();
   loadTemplates();
   loadDownloadAgentFiles();
 
@@ -161,7 +164,7 @@ function renderDownloadAgentFiles(files) {
     const labelWrap = document.createElement("div");
     const label = document.createElement("div");
     label.className = "download-agent-file-name";
-    label.title = file.fileName;
+    setTooltip(label, file.fileName);
     label.textContent = file.fileName;
     labelWrap.appendChild(label);
 
@@ -212,6 +215,7 @@ function configureActionButton(button, file) {
   if (file.status === "ready") {
     setButtonLabel(button, "View");
     button.classList.add("action-view");
+    setTooltip(button, getLaunchFileTooltipText(getLaunchFiles(file)));
     button.addEventListener("click", async () => {
       await openLaunchFile(file, 0);
     });
@@ -269,6 +273,7 @@ function getLaunchFiles(file) {
       {
         index: 0,
         label: file.fileName || "Scan 1",
+        relativeLaunchPath: file.fileName || "Scan 1",
         launchFileUrl: file.launchFileUrl,
       },
     ];
@@ -285,6 +290,7 @@ function createViewDropdown(file) {
   const trigger = document.createElement("button");
   trigger.className = "download-agent-action-button action-view";
   trigger.type = "button";
+  setTooltip(trigger, getLaunchFileTooltipText(launchFiles));
   trigger.setAttribute("aria-haspopup", "menu");
   trigger.setAttribute("aria-expanded", "false");
   setButtonLabel(trigger, "View");
@@ -308,7 +314,7 @@ function createViewDropdown(file) {
     option.type = "button";
     option.setAttribute("role", "menuitem");
     option.textContent = label;
-    option.title = label;
+    setTooltip(option, getLaunchFileTooltipText([launchFile], index));
     option.addEventListener("click", async (event) => {
       event.stopPropagation();
       menu.hidden = true;
@@ -360,6 +366,53 @@ function getLaunchFileLabel(launchFile, index) {
       : `Scan ${index + 1}`;
 
   return label;
+}
+
+function getLaunchFileTooltipText(launchFiles, fallbackIndex = 0) {
+  return launchFiles
+    .map((launchFile, index) => {
+      if (
+        typeof launchFile.relativeLaunchPath === "string" &&
+        launchFile.relativeLaunchPath.trim() !== ""
+      ) {
+        return launchFile.relativeLaunchPath.trim();
+      }
+
+      return getLaunchFileLabel(launchFile, fallbackIndex + index);
+    })
+    .join("\n");
+}
+
+async function loadTooltipsSetting() {
+  try {
+    const response = await sendRuntimeMessage({
+      action: "get_tooltips_setting",
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "Could not load setting");
+    }
+
+    showTooltips = response.enabled !== false;
+  } catch (error) {
+    console.error("[DA] Failed to load tooltip setting:", error);
+    showTooltips = true;
+  }
+}
+
+function applyStaticTooltips() {
+  document.querySelectorAll("[data-tooltip]").forEach((element) => {
+    setTooltip(element, element.dataset.tooltip);
+  });
+}
+
+function setTooltip(element, text) {
+  if (showTooltips && typeof text === "string" && text.trim() !== "") {
+    element.title = text.trim();
+    return;
+  }
+
+  element.removeAttribute("title");
 }
 
 async function openLaunchFile(file, launchFileIndex) {

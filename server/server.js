@@ -643,6 +643,8 @@ function createLaunchFileChoices(fileState) {
   return paths.map((filePath, index) => ({
     index,
     label: labels[index] || path.basename(filePath) || `Scan ${index + 1}`,
+    relativeLaunchPath:
+      labels[index] || path.basename(filePath) || `Scan ${index + 1}`,
     launchFileUrl: urls[index] || pathToFileUrl(filePath),
   }));
 }

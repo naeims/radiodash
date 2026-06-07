@@ -2,6 +2,7 @@ const SERVER_BASE_URL = "http://localhost:5000";
 const DOWNLOAD_STORAGE_PREFIX = "downloadAgentDownload:";
 const PORTAL_CLICK_PENDING_KEY = "downloadAgentPendingPortalClicks";
 const AUTO_PREPARE_ENABLED_KEY = "downloadAgentAutoPrepareEnabled";
+const SHOW_TOOLTIPS_ENABLED_KEY = "downloadAgentShowTooltipsEnabled";
 const PORTAL_CLICK_TIMEOUT_MS = 60000;
 const AUTO_PREPARE_DEBOUNCE_MS = 1000;
 
@@ -18,6 +19,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       viewDownloadAgentFile(request.file, request.launchFileIndex),
     get_auto_prepare_setting: () => getAutoPrepareSetting(),
     set_auto_prepare_setting: () => setAutoPrepareSetting(request.enabled),
+    get_tooltips_setting: () => getTooltipsSetting(),
+    set_tooltips_setting: () => setTooltipsSetting(request.enabled),
     delete_download_agent_temp: () => deleteDownloadAgentTemp(),
   };
   const handler = handlers[request.action];
@@ -401,6 +404,28 @@ async function setAutoPrepareSetting(enabled) {
 
 async function getAutoPrepareEnabled() {
   const enabled = await storageGet(AUTO_PREPARE_ENABLED_KEY);
+
+  return enabled !== false;
+}
+
+async function getTooltipsSetting() {
+  return {
+    ok: true,
+    enabled: await getTooltipsEnabled(),
+  };
+}
+
+async function setTooltipsSetting(enabled) {
+  await storageSet(SHOW_TOOLTIPS_ENABLED_KEY, enabled !== false);
+
+  return {
+    ok: true,
+    enabled: await getTooltipsEnabled(),
+  };
+}
+
+async function getTooltipsEnabled() {
+  const enabled = await storageGet(SHOW_TOOLTIPS_ENABLED_KEY);
 
   return enabled !== false;
 }

@@ -334,44 +334,52 @@ async function autoPrepareDownloadAgentFilesInTab(tabId, tabUrl) {
   }
 
   const payload = await inspectDownloadAgentFilesInTab(tabId, tabUrl);
-  const filesToPrepare = payload.files.filter(
-    (file) => file.canPrepare && file.status === "not_downloaded",
-  );
+  const firstFile = payload.files[0];
 
-  if (filesToPrepare.length === 0) {
-    console.log("[DA] Automatic prepare found no new files", {
+  if (!firstFile) {
+    console.log("[DA] Automatic prepare found no files", {
       caseKey: payload.caseKey,
+    });
+    return;
+  }
+
+  if (!firstFile.canPrepare || firstFile.status !== "not_downloaded") {
+    console.log("[DA] Automatic prepare found no eligible first file", {
+      caseKey: payload.caseKey,
+      fileId: firstFile.fileId,
+      fileName: firstFile.fileName,
+      status: firstFile.status,
+      canPrepare: firstFile.canPrepare,
     });
     return;
   }
 
   console.log("[DA] Automatic prepare starting", {
     caseKey: payload.caseKey,
-    fileCount: filesToPrepare.length,
+    fileId: firstFile.fileId,
+    fileName: firstFile.fileName,
   });
 
-  for (const file of filesToPrepare) {
-    const fileKey = `${file.caseKey}\n${file.fileId}`;
+  const fileKey = `${firstFile.caseKey}\n${firstFile.fileId}`;
 
-    if (autoPrepareFileKeys.has(fileKey)) {
-      continue;
-    }
+  if (autoPrepareFileKeys.has(fileKey)) {
+    return;
+  }
 
-    autoPrepareFileKeys.add(fileKey);
+  autoPrepareFileKeys.add(fileKey);
 
-    try {
-      await prepareDownloadAgentFile(file, tabId);
-      notifyDownloadAgentStateUpdated(file.caseKey);
-    } catch (error) {
-      console.error("[DA] Automatic prepare failed:", {
-        caseKey: file.caseKey,
-        fileId: file.fileId,
-        fileName: file.fileName,
-        error: error.message,
-      });
-    } finally {
-      autoPrepareFileKeys.delete(fileKey);
-    }
+  try {
+    await prepareDownloadAgentFile(firstFile, tabId);
+    notifyDownloadAgentStateUpdated(firstFile.caseKey);
+  } catch (error) {
+    console.error("[DA] Automatic prepare failed:", {
+      caseKey: firstFile.caseKey,
+      fileId: firstFile.fileId,
+      fileName: firstFile.fileName,
+      error: error.message,
+    });
+  } finally {
+    autoPrepareFileKeys.delete(fileKey);
   }
 }
 

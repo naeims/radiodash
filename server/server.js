@@ -1,95 +1,178 @@
 const express = require("express");
 const cors = require("cors");
-const fs = require("fs");
 const path = require("path");
-const PizZip = require("pizzip");
-const Docxtemplater = require("docxtemplater");
+const multer = require("multer");
+
+const { renderDocument } = require("./lib/render");
+const {
+  isValidTemplateName,
+  listTemplates,
+  getTemplateBuffer,
+  saveTemplate,
+  renameTemplate,
+  deleteTemplate,
+  reorderTemplates,
+} = require("./lib/templates");
+const { requireApiToken, requireAdmin } = require("./lib/auth");
 
 const DEFAULT_PORT = Number(process.env.PORT) || 5000;
-const DEFAULT_TEMPLATE_DIR = path.resolve(__dirname, "templates");
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-function listTemplates(templateDir = DEFAULT_TEMPLATE_DIR) {
-  return fs
-    .readdirSync(templateDir)
-    .filter((file) => path.extname(file) === ".docx")
-    .map((file) => path.basename(file, ".docx"))
-    .sort((a, b) => a.localeCompare(b));
-}
+const upload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    if (path.extname(file.originalname).toLowerCase() === ".docx") {
+      cb(null, true);
+    } else {
+      cb(new Error("Only .docx files are accepted"), false);
+    }
+  },
+});
 
-function resolveTemplatePath(template, templateDir = DEFAULT_TEMPLATE_DIR) {
-  if (
-    typeof template !== "string" ||
-    template.trim() === "" ||
-    template !== template.trim() ||
-    template.includes("/") ||
-    template.includes("\\")
-  ) {
-    return null;
-  }
+function createApp() {
+  const app = express();
 
-  return path.resolve(templateDir, `${template}.docx`);
-}
+  app.use(
+    cors({
+      origin: (origin, cb) => cb(null, origin || "*"),
+      credentials: true,
+    })
+  );
+  app.use(express.json());
 
-function renderDocument(templatePath, data) {
-  const content = fs.readFileSync(templatePath, "binary");
-  const zip = new PizZip(content);
-  const doc = new Docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true,
+  app.get("/templates", requireApiToken, async (req, res) => {
+    try {
+      const templates = await listTemplates();
+      res.json(templates);
+    } catch (err) {
+      console.error("Error listing templates:", err);
+      res.status(500).json({ error: "Error listing templates" });
+    }
   });
 
-  doc.render(data || {});
-
-  return doc.getZip().generate({ type: "nodebuffer" });
-}
-
-function createTemplateListHandler(templateDir = DEFAULT_TEMPLATE_DIR) {
-  return (req, res) => {
-    try {
-      res.json(listTemplates(templateDir));
-    } catch (error) {
-      console.error("Error reading templates directory:", error);
-      res.status(500).json({ error: "Error reading templates directory" });
-    }
-  };
-}
-
-function createDocumentGenerationHandler(templateDir = DEFAULT_TEMPLATE_DIR) {
-  return (req, res) => {
+  app.post("/generate_document", requireApiToken, async (req, res) => {
     const { template, data } = req.body || {};
-    const templatePath = resolveTemplatePath(template, templateDir);
 
-    if (!templatePath) {
+    if (!isValidTemplateName(template)) {
       return res.status(400).json({ error: "Invalid template name" });
     }
 
-    if (!fs.existsSync(templatePath)) {
+    const buf = await getTemplateBuffer(template);
+    if (!buf) {
       return res.status(404).json({ error: "Template not found" });
     }
 
     try {
-      const buf = renderDocument(templatePath, data);
-
+      const result = renderDocument(buf, data);
       res.setHeader("Content-Disposition", "attachment; filename=output.docx");
       res.setHeader("Content-Type", DOCX_MIME);
-      res.send(buf);
-    } catch (error) {
-      console.error("Error generating document:", error);
+      res.send(result);
+    } catch (err) {
+      console.error("Error generating document:", err);
       res.status(500).json({ error: "Error generating document" });
     }
-  };
-}
+  });
 
-function createApp({ templateDir = DEFAULT_TEMPLATE_DIR } = {}) {
-  const app = express();
+  app.get("/admin", requireAdmin, (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "admin.html"));
+  });
 
-  app.use(cors());
-  app.use(express.json());
+  app.use(
+    "/admin",
+    requireAdmin,
+    express.static(path.join(__dirname, "public"))
+  );
 
-  app.get("/templates", createTemplateListHandler(templateDir));
-  app.post("/generate_document", createDocumentGenerationHandler(templateDir));
+  const adminRouter = express.Router();
+  adminRouter.use(requireAdmin);
+
+  adminRouter.get("/templates", async (req, res) => {
+    try {
+      const templates = await listTemplates();
+      res.json(templates);
+    } catch (err) {
+      console.error("Error listing templates:", err);
+      res.status(500).json({ error: "Error listing templates" });
+    }
+  });
+
+  adminRouter.post(
+    "/templates/upload",
+    upload.single("file"),
+    async (req, res) => {
+      if (!req.file) {
+        return res.status(400).json({ error: "No .docx file provided" });
+      }
+
+      const rawName = req.body.name || req.file.originalname.replace(/\.docx$/i, "");
+      const name = rawName.trim();
+
+      if (!isValidTemplateName(name)) {
+        return res.status(400).json({ error: "Invalid template name" });
+      }
+
+      try {
+        await saveTemplate(name, req.file.buffer);
+        res.json({ name });
+      } catch (err) {
+        console.error("Error saving template:", err);
+        res.status(500).json({ error: "Error saving template" });
+      }
+    }
+  );
+
+  adminRouter.post("/templates/rename", async (req, res) => {
+    const { oldName, newName } = req.body || {};
+
+    if (!isValidTemplateName(oldName) || !isValidTemplateName(newName)) {
+      return res.status(400).json({ error: "Invalid template name" });
+    }
+
+    try {
+      const ok = await renameTemplate(oldName, newName);
+      if (!ok) return res.status(404).json({ error: "Template not found" });
+      res.json({ newName });
+    } catch (err) {
+      console.error("Error renaming template:", err);
+      res.status(500).json({ error: "Error renaming template" });
+    }
+  });
+
+  adminRouter.post("/templates/reorder", async (req, res) => {
+    const { order } = req.body || {};
+
+    if (!Array.isArray(order) || !order.every(isValidTemplateName)) {
+      return res.status(400).json({ error: "Invalid order array" });
+    }
+
+    try {
+      await reorderTemplates(order);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error reordering templates:", err);
+      res.status(500).json({ error: "Error reordering templates" });
+    }
+  });
+
+  adminRouter.delete("/templates/:name", async (req, res) => {
+    const name = req.params.name;
+
+    if (!isValidTemplateName(name)) {
+      return res.status(400).json({ error: "Invalid template name" });
+    }
+
+    try {
+      const ok = await deleteTemplate(name);
+      if (!ok) return res.status(404).json({ error: "Template not found" });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("Error deleting template:", err);
+      res.status(500).json({ error: "Error deleting template" });
+    }
+  });
+
+  app.use("/admin/api", adminRouter);
 
   return app;
 }
@@ -100,12 +183,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = {
-  DOCX_MIME,
-  createApp,
-  createDocumentGenerationHandler,
-  createTemplateListHandler,
-  listTemplates,
-  renderDocument,
-  resolveTemplatePath,
-};
+module.exports = { DOCX_MIME, createApp };

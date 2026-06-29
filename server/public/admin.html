@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RadioDash Admin</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 20px;
+        font-family: Arial, sans-serif;
+        background: #f5f5f5;
+        color: #333;
+      }
+
+      h1 {
+        font-size: 20px;
+        margin-bottom: 20px;
+      }
+
+      #upload-section {
+        background: #fff;
+        border: 1px solid #ccc;
+        padding: 16px;
+        margin-bottom: 24px;
+        max-width: 480px;
+      }
+
+      #upload-section label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: bold;
+      }
+
+      #upload-section input[type="file"] {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      #upload-section input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+        border: 1px solid #ccc;
+        font-size: 14px;
+      }
+
+      button {
+        padding: 6px 14px;
+        cursor: pointer;
+        font-size: 14px;
+        border: 1px solid #999;
+        background: #f0f0f0;
+      }
+
+      button:hover {
+        background: #e0e0e0;
+      }
+
+      #template-list {
+        max-width: 600px;
+      }
+
+      .template-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: #fff;
+        border: 1px solid #ccc;
+        padding: 8px 12px;
+        margin-bottom: 4px;
+      }
+
+      .template-name {
+        flex: 1;
+        font-size: 15px;
+      }
+
+      .rename-input {
+        flex: 1;
+        padding: 4px 6px;
+        font-size: 14px;
+        border: 1px solid #999;
+      }
+
+      #status {
+        margin-top: 12px;
+        color: #555;
+        font-size: 13px;
+        min-height: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>RadioDash Admin</h1>
+
+    <div id="upload-section">
+      <label>Upload template</label>
+      <input type="file" id="file-input" accept=".docx" />
+      <input type="text" id="upload-name" placeholder="Template name (optional)" />
+      <button id="upload-btn">Upload</button>
+    </div>
+
+    <div id="template-list"></div>
+    <div id="status"></div>
+
+    <script src="admin.js"></script>
+  </body>
+</html>

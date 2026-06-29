@@ -4,38 +4,51 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       "Received generate_document action with template:",
       request.template,
     );
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs.length > 0) {
-        let activeTab = tabs[0];
-        let activeTabId = activeTab.id;
-        let activeTabUrl = activeTab.url;
 
-        console.log("Active tab URL:", activeTabUrl);
-        chrome.scripting.executeScript(
-          {
-            target: { tabId: activeTabId },
-            function: collectAndSendData,
-            args: [activeTabUrl, request.template],
-          },
-          (results) => {
-            if (chrome.runtime.lastError) {
-              console.error(
-                "Script injection error:",
-                chrome.runtime.lastError,
-              );
-            } else {
-              console.log("Script injected successfully:", results);
-            }
-          },
-        );
-      } else {
-        console.error("No active tab found");
+    chrome.storage.local.get(["serverUrl", "token"], (config) => {
+      const { serverUrl, token } = config;
+
+      if (!serverUrl || !token) {
+        console.error("Server URL or token not configured.");
+        return;
       }
+
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs.length > 0) {
+          let activeTab = tabs[0];
+          let activeTabId = activeTab.id;
+          let activeTabUrl = activeTab.url;
+
+          console.log("Active tab URL:", activeTabUrl);
+          chrome.scripting.executeScript(
+            {
+              target: { tabId: activeTabId },
+              function: collectAndSendData,
+              args: [activeTabUrl, request.template, serverUrl, token],
+            },
+            (results) => {
+              if (chrome.runtime.lastError) {
+                console.error(
+                  "Script injection error:",
+                  chrome.runtime.lastError,
+                );
+              } else {
+                console.log("Script injected successfully:", results);
+              }
+            },
+          );
+        } else {
+          console.error("No active tab found");
+        }
+      });
     });
   }
+
+  // Return true to keep the message channel open for async response
+  return true;
 });
 
-function collectAndSendData(pageUrl, template) {
+function collectAndSendData(pageUrl, template, serverUrl, token) {
   console.log("collectData function called with URL:", pageUrl);
 
   function extractData(pageUrl) {
@@ -165,10 +178,11 @@ function collectAndSendData(pageUrl, template) {
   const patientNameForFile = data.patient_name.replace(/\s+/g, "_");
   const fileName = `RadReport_${patientNameForFile}_${data.utc_time}_MA.docx`;
 
-  fetch("http://localhost:5000/generate_document", {
+  fetch(`${serverUrl}/generate_document`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ template, data }),
   })

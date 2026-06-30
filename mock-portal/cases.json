@@ -1,0 +1,72 @@
+[
+  {
+    "id": "case-001",
+    "pid": "100001",
+    "sid": "200001",
+    "patient_name": "Jane Smith",
+    "patient_dob": "03/15/1975",
+    "patient_age": "49",
+    "patient_gender": "Female",
+    "study_purpose": "Evaluate for temporomandibular joint disorder",
+    "clinical_notes": "Patient presents with chronic jaw pain and limited opening. Rule out TMJ pathology.",
+    "requesting_doctor": "Dr. Emily Carter",
+    "submitting_group": "Westside Dental Associates",
+    "scan_date": "06/20/2026"
+  },
+  {
+    "id": "case-002",
+    "pid": "100002",
+    "sid": "200002",
+    "patient_name": "Robert Johnson",
+    "patient_dob": "11/22/1960",
+    "patient_age": "65",
+    "patient_gender": "Male",
+    "study_purpose": "Pre-implant assessment of mandibular bone density",
+    "clinical_notes": "Patient is edentulous in the lower right quadrant and is being considered for implants at sites 29-31.",
+    "requesting_doctor": "Dr. Marcus Yuen",
+    "submitting_group": "Northgate Oral Surgery",
+    "scan_date": "06/22/2026"
+  },
+  {
+    "id": "case-003",
+    "pid": "100003",
+    "sid": "200003",
+    "patient_name": "Aisha Patel",
+    "patient_dob": "07/04/1990",
+    "patient_age": "35",
+    "patient_gender": "Female",
+    "study_purpose": "Evaluate impacted wisdom tooth and proximity to inferior alveolar canal",
+    "clinical_notes": "Tooth 17 is deeply impacted. Surgeon requests proximity assessment before extraction planning.",
+    "requesting_doctor": "Dr. Laura Mendez",
+    "submitting_group": "Downtown Dental Group",
+    "scan_date": "06/25/2026"
+  },
+  {
+    "id": "case-004",
+    "pid": "100004",
+    "sid": "200004",
+    "patient_name": "Daniel Wong",
+    "patient_dob": "02/28/1985",
+    "patient_age": "41",
+    "patient_gender": "Male",
+    "study_purpose": "Upper airway evaluation for suspected obstructive sleep apnea",
+    "clinical_notes": "Patient reports loud snoring and daytime fatigue. Assess airway volume and minimum cross-sectional area.",
+    "requesting_doctor": "Dr. Soroush Zaghi",
+    "submitting_group": "Airway Health Clinic",
+    "scan_date": "06/28/2026"
+  },
+  {
+    "id": "case-005",
+    "pid": "100005",
+    "sid": "200005",
+    "patient_name": "Test Patient",
+    "patient_dob": "01/01/1980",
+    "patient_age": "45",
+    "patient_gender": "Male",
+    "study_purpose": "Evaluate for temporomandibular joint disorder",
+    "clinical_notes": "Jaw pain, rule out TMJ pathology.",
+    "requesting_doctor": "Dr. Test",
+    "submitting_group": "Test Clinic",
+    "scan_date": "06/30/2026"
+  }
+]

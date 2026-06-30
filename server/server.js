@@ -14,6 +14,7 @@ const {
   reorderTemplates,
 } = require("./lib/templates");
 const { requireApiToken, requireAdmin } = require("./lib/auth");
+const { createLogger } = require("./lib/log");
 
 const DEFAULT_PORT = Number(process.env.PORT) || 5000;
 const DOCX_MIME =
@@ -42,34 +43,46 @@ function createApp() {
   app.use(express.json());
 
   app.get("/templates", requireApiToken, async (req, res) => {
+    const log = createLogger("docx-server", { runId: req.headers["x-run-id"] || null });
+    const start = Date.now();
     try {
       const templates = await listTemplates();
+      log.info("templates.listed", { count: templates.length, durationMs: Date.now() - start });
       res.json(templates);
     } catch (err) {
-      console.error("Error listing templates:", err);
+      log.error("templates.error", { error: err.message });
       res.status(500).json({ error: "Error listing templates" });
     }
   });
 
   app.post("/generate_document", requireApiToken, async (req, res) => {
+    const log = createLogger("docx-server", { runId: req.headers["x-run-id"] || null });
+    const start = Date.now();
     const { template, data } = req.body || {};
+    log.info("generate.start", {
+      template,
+      dataKeys: data && typeof data === "object" ? Object.keys(data) : [],
+    });
 
     if (!isValidTemplateName(template)) {
+      log.warn("generate.invalid_template", { template });
       return res.status(400).json({ error: "Invalid template name" });
     }
 
     const buf = await getTemplateBuffer(template);
     if (!buf) {
+      log.warn("generate.template_not_found", { template });
       return res.status(404).json({ error: "Template not found" });
     }
 
     try {
       const result = renderDocument(buf, data);
+      log.info("generate.done", { template, bytes: result.length, durationMs: Date.now() - start });
       res.setHeader("Content-Disposition", "attachment; filename=output.docx");
       res.setHeader("Content-Type", DOCX_MIME);
       res.send(result);
     } catch (err) {
-      console.error("Error generating document:", err);
+      log.error("generate.error", { template, error: err.message });
       res.status(500).json({ error: "Error generating document" });
     }
   });

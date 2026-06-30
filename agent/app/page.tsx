@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { createLogger, errFields } from "@/lib/log";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -22,7 +23,8 @@ async function getReports(): Promise<Report[]> {
       ORDER BY created_at DESC
     `) as unknown as Report[];
     return rows;
-  } catch {
+  } catch (err) {
+    createLogger("agent-dashboard").error("reports.query_failed", errFields(err));
     return [];
   }
 }

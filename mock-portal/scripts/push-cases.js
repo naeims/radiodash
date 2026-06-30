@@ -15,6 +15,17 @@ async function main() {
   const filePath = path.join(__dirname, "..", "cases.json");
   const content = fs.readFileSync(filePath, "utf-8");
 
+  let ids = [];
+  try {
+    const parsed = JSON.parse(content);
+    if (Array.isArray(parsed)) ids = parsed.map((c) => c && c.id);
+  } catch (err) {
+    console.error("cases.json is not valid JSON:", err.message);
+    process.exit(1);
+  }
+
+  console.log(`Uploading cases.json with ${ids.length} case(s): ${ids.join(", ")}`);
+
   const blob = await put("cases.json", content, {
     access: "public",
     contentType: "application/json",

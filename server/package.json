@@ -1,12 +1,15 @@
 {
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "test:llm": "node scripts/llm-launch-file-harness.js"
+  },
   "dependencies": {
-    "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "docxtemplater": "^3.49.1",
     "express": "^4.19.2",
-    "fs": "^0.0.1-security",
-    "path": "^0.12.7",
-    "pizzip": "^3.1.7"
+    "pizzip": "^3.1.7",
+    "yauzl": "^3.3.2"
   },
   "devDependencies": {
     "prettier": "3.3.3"

@@ -1,51 +1,398 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
+    <meta charset="utf-8" />
     <style>
-      body {
-        margin: 0;
-        padding: 0;
-        font-family: Arial, sans-serif;
-        min-width: 150px;
+      :root {
+        --ink: #22303c;
+        --muted: #637486;
+        --line: #bfccd8;
+        --line-strong: #aab9c7;
+        --surface: #ffffff;
+        --surface-soft: #f6f8fb;
+        --surface-header: #e2ebf2;
+        --surface-hover: #cfe3ef;
+        --surface-active: #bdd6e6;
+        --prepare: #2d668f;
+        --prepare-hover: #245778;
+        --view: #24705e;
+        --view-hover: #1d5d4f;
+        --focus: #7fb1d6;
       }
 
-      #template-buttons {
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 6px;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        min-width: 340px;
+        color: var(--ink);
+        background: #d9e3ec;
+        font-size: 13px;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .section-title {
+        margin: 0;
+        padding: 8px 12px 8px 14px;
+        border: 1px solid var(--line-strong);
+        border-bottom: 0;
+        border-radius: 8px 8px 0 0;
+        background: var(--surface-header);
+        color: #152636;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0;
+        line-height: 1.25;
+        box-shadow:
+          inset 3px 0 0 var(--prepare),
+          0 1px 2px rgba(30, 42, 54, 0.08);
+      }
+
+      .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 8px;
+        padding: 7px 8px 7px 14px;
+        border: 1px solid var(--line-strong);
+        border-bottom: 0;
+        border-radius: 8px 8px 0 0;
+        background: var(--surface-header);
+        color: #152636;
+        box-shadow:
+          inset 3px 0 0 var(--prepare),
+          0 1px 2px rgba(30, 42, 54, 0.08);
+      }
+
+      .section-header .section-title {
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+
+      .section-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      #template-buttons,
+      #download-agent-files {
         display: flex;
         flex-direction: column;
         width: 100%;
+        border: 1px solid var(--line-strong);
+        border-radius: 0 0 8px 8px;
+        background: var(--surface);
+        box-shadow: 0 1px 3px rgba(30, 42, 54, 0.1);
+      }
+
+      #template-buttons {
+        margin-bottom: 0;
+        overflow: hidden;
+      }
+
+      #download-agent-files {
+        overflow: visible;
       }
 
       #template-buttons button {
         width: 100%;
-        height: 40px;
+        min-height: 38px;
         margin: 0;
         border: none;
-        background-color: #f0f0f0;
-        color: #333;
+        background-color: var(--surface);
+        color: var(--ink);
         cursor: pointer;
-        font-size: 16px;
+        font-size: 14px;
+        font-weight: 400;
         text-align: left;
-        padding-left: 10px;
-        line-height: 40px;
-        transition: background-color 0.3s;
-        border-bottom: 1px solid #ccc;
+        padding: 9px 12px 9px 14px;
+        line-height: 1.35;
+        transition:
+          background-color 0.16s ease,
+          color 0.16s ease,
+          box-shadow 0.16s ease,
+          transform 0.08s ease;
+        border-bottom: 1px solid var(--line);
       }
 
       #template-buttons button:hover {
-        background-color: #e0f7fa;
+        background-color: var(--surface-hover);
+        color: #172634;
+        box-shadow: inset 3px 0 0 var(--prepare);
       }
 
       #template-buttons button:active {
-        background-color: #b2ebf2;
+        background-color: var(--surface-active);
+        transform: translateY(1px);
+      }
+
+      #template-buttons button:focus-visible,
+      .small-button:focus-visible,
+      .download-agent-action-button:focus-visible,
+      .view-dropdown-option:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: -2px;
       }
 
       #template-buttons button:last-child {
         border-bottom: none;
       }
+
+      .small-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #aebdca;
+        border-radius: 6px;
+        background: #fff;
+        color: #405566;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 1;
+        min-width: 26px;
+        min-height: 26px;
+        padding: 0;
+        transition:
+          background-color 0.16s ease,
+          border-color 0.16s ease,
+          color 0.16s ease,
+          transform 0.08s ease;
+      }
+
+      .small-button:hover {
+        border-color: #829bac;
+        background: var(--surface-hover);
+        color: var(--ink);
+      }
+
+      .small-button:active {
+        transform: translateY(1px);
+        background: var(--surface-active);
+      }
+
+      .download-agent-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 104px;
+        align-items: center;
+        gap: 10px;
+        min-height: 46px;
+        padding: 8px 10px 8px 14px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+        transition:
+          background-color 0.16s ease,
+          box-shadow 0.16s ease;
+      }
+
+      .download-agent-row:hover {
+        background: #eef6fa;
+        box-shadow: inset 3px 0 0 #a9c9dc;
+      }
+
+      .download-agent-row:last-child {
+        border-bottom: none;
+        border-radius: 0 0 8px 8px;
+      }
+
+      .download-agent-file-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+        font-weight: 400;
+        line-height: 1.35;
+      }
+
+      .download-agent-error {
+        color: #a63737;
+        font-size: 11px;
+        margin-top: 3px;
+        white-space: normal;
+      }
+
+      .download-agent-action-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border: 1px solid transparent;
+        border-radius: 5px;
+        background: var(--prepare);
+        color: #fff;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        height: 32px;
+        padding: 0 10px;
+        width: 100%;
+        transition:
+          background-color 0.16s ease,
+          border-color 0.16s ease,
+          box-shadow 0.16s ease,
+          transform 0.08s ease;
+      }
+
+      .download-agent-action-button:hover:not([disabled]) {
+        background: var(--prepare-hover);
+        box-shadow: 0 1px 3px rgba(30, 42, 54, 0.2);
+      }
+
+      .download-agent-action-button:active:not([disabled]) {
+        transform: translateY(1px);
+        box-shadow: none;
+      }
+
+      .download-agent-action-button.action-view {
+        background: var(--view);
+      }
+
+      .download-agent-action-button.action-view:hover:not([disabled]) {
+        background: var(--view-hover);
+      }
+
+      .download-agent-action-button.action-retry {
+        background: #6c5a35;
+      }
+
+      .download-agent-action-button.action-retry:hover:not([disabled]) {
+        background: #594a2d;
+      }
+
+      .download-agent-action-button[disabled] {
+        cursor: default;
+        border-color: #cfd8df;
+        background: #eef2f5;
+        color: var(--muted);
+        opacity: 1;
+      }
+
+      .view-dropdown {
+        position: relative;
+        width: 100%;
+      }
+
+      .view-dropdown .download-agent-action-button {
+        position: relative;
+        justify-content: center;
+        padding: 0 28px;
+      }
+
+      .view-dropdown-label {
+        text-align: center;
+      }
+
+      .view-dropdown-caret {
+        position: absolute;
+        right: 11px;
+        top: 50%;
+        width: 7px;
+        height: 7px;
+        border-right: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+        transform: translateY(-65%) rotate(45deg);
+      }
+
+      .view-dropdown-menu {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 4px);
+        z-index: 5;
+        width: max-content;
+        min-width: 230px;
+        max-width: calc(100vw - 22px);
+        padding: 4px;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+        background: var(--surface);
+        box-shadow: 0 8px 22px rgba(30, 42, 54, 0.18);
+      }
+
+      .view-dropdown-menu[hidden] {
+        display: none;
+      }
+
+      .view-dropdown-option {
+        display: block;
+        width: 100%;
+        min-height: 30px;
+        border: none;
+        border-radius: 3px;
+        background: transparent;
+        color: var(--ink);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 1.25;
+        padding: 7px 8px;
+        text-align: left;
+        overflow-wrap: anywhere;
+        white-space: normal;
+      }
+
+      .view-dropdown-option:hover {
+        background: var(--surface-hover);
+        color: #172634;
+        box-shadow: inset 3px 0 0 var(--prepare);
+      }
+
+      .loading-spinner {
+        width: 13px;
+        height: 13px;
+        border: 2px solid #c7d2dc;
+        border-top-color: #607080;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
     </style>
   </head>
   <body>
+    <h2 class="section-title">Templates</h2>
     <div id="template-buttons"></div>
+    <div class="section-header">
+      <h2 class="section-title">Download Agent</h2>
+      <div class="section-actions">
+        <button
+          id="download-agent-settings"
+          class="small-button"
+          data-tooltip="Settings"
+          aria-label="Settings"
+        >
+          &#9881;
+        </button>
+        <button
+          id="download-agent-refresh"
+          class="small-button"
+          data-tooltip="Refresh"
+          aria-label="Refresh"
+        >
+          &#8635;
+        </button>
+      </div>
+    </div>
+    <div id="download-agent-files"></div>
     <script src="popup.js"></script>
   </body>
 </html>

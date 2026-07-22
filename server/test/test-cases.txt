@@ -1,0 +1,416 @@
+### TEST_1
+
+Directory "."
+- subdirectoryCount: 0
+- fileCount: 1
+- fileTypes: .dcm: 1
+- files:
+  - relativePath: "Jack Bauer.dcm" | sizeBytes: 1757751842
+
+### EXPECTED_1
+
+{ "path": "Jack Bauer.dcm" }
+
+### TEST_2
+
+Directory "Blaser, Darcy - DICOMS"
+- subdirectoryCount: 0
+- fileCount: 490
+- fileTypes: .dcm: 490
+- files:
+  - relativePath: "Blaser, Darcy - DICOMS/Blaser^Darcy0001.dcm" | sizeBytes: 61752
+  - relativePath: "Blaser, Darcy - DICOMS/Blaser^Darcy0002.dcm" | sizeBytes: 61752
+  - relativePath: "Blaser, Darcy - DICOMS/Blaser^Darcy0003.dcm" | sizeBytes: 61752
+  - relativePath: "Blaser, Darcy - DICOMS/Blaser^Darcy0004.dcm" | sizeBytes: 61752
+  - relativePath: "Blaser, Darcy - DICOMS/Blaser^Darcy0005.dcm" | sizeBytes: 61752
+  - relativePath: "Blaser, Darcy - DICOMS/Blaser^Darcy0006.dcm" | sizeBytes: 61752
+  - relativePath: "Blaser, Darcy - DICOMS/Blaser^Darcy0007.dcm" | sizeBytes: 61752
+  - relativePath: "Blaser, Darcy - DICOMS/Blaser^Darcy0008.dcm" | sizeBytes: 61752
+  - relativePath: "Blaser, Darcy - DICOMS/Blaser^Darcy0009.dcm" | sizeBytes: 61752
+  - relativePath: "Blaser, Darcy - DICOMS/Blaser^Darcy0010.dcm" | sizeBytes: 61752
+  - relativePath: "Blaser, Darcy - DICOMS/Blaser^Darcy0011.dcm" | sizeBytes: 61752
+  - relativePath: "Blaser, Darcy - DICOMS/Blaser^Darcy0012.dcm" | sizeBytes: 61752
+  - omittedFilesInThisDirectory: 478
+
+Directory "."
+- subdirectoryCount: 1
+- fileCount: 0
+
+### EXPECTED_2
+
+{ "path": "Blaser, Darcy - DICOMS/Blaser^Darcy0001.dcm" }
+
+### TEST_3
+
+Directory "CT20260520_074836_7274_61676221"
+- subdirectoryCount: 0
+- fileCount: 950
+- fileTypes: .dcm: 950
+- files:
+  - relativePath: "CT20260520_074836_7274_61676221/DCM_00000.dcm" | sizeBytes: 2206366
+  - relativePath: "CT20260520_074836_7274_61676221/DCM_00001.dcm" | sizeBytes: 2206366
+  - relativePath: "CT20260520_074836_7274_61676221/DCM_00002.dcm" | sizeBytes: 2206366
+  - relativePath: "CT20260520_074836_7274_61676221/DCM_00003.dcm" | sizeBytes: 2206366
+  - relativePath: "CT20260520_074836_7274_61676221/DCM_00004.dcm" | sizeBytes: 2206366
+  - relativePath: "CT20260520_074836_7274_61676221/DCM_00005.dcm" | sizeBytes: 2206366
+  - relativePath: "CT20260520_074836_7274_61676221/DCM_00006.dcm" | sizeBytes: 2206366
+  - relativePath: "CT20260520_074836_7274_61676221/DCM_00007.dcm" | sizeBytes: 2206366
+  - relativePath: "CT20260520_074836_7274_61676221/DCM_00008.dcm" | sizeBytes: 2206366
+  - relativePath: "CT20260520_074836_7274_61676221/DCM_00009.dcm" | sizeBytes: 2206366
+  - relativePath: "CT20260520_074836_7274_61676221/DCM_00010.dcm" | sizeBytes: 2206366
+  - relativePath: "CT20260520_074836_7274_61676221/DCM_00011.dcm" | sizeBytes: 2206366
+  - omittedFilesInThisDirectory: 938
+
+Directory "."
+- subdirectoryCount: 1
+- fileCount: 0
+
+### EXPECTED_3
+
+{ "path": "CT20260520_074836_7274_61676221/DCM_00000.dcm" }
+
+### TEST_4
+
+Directory "Q. Wolt 2/PAT00000"
+- subdirectoryCount: 0
+- fileCount: 699
+- fileTypes: [no extension]: 699
+- files:
+  - relativePath: "Q. Wolt 2/PAT00000/I0000000" | sizeBytes: 355772
+  - relativePath: "Q. Wolt 2/PAT00000/I0000001" | sizeBytes: 352710
+  - relativePath: "Q. Wolt 2/PAT00000/I0000002" | sizeBytes: 352366
+  - relativePath: "Q. Wolt 2/PAT00000/I0000003" | sizeBytes: 352568
+  - relativePath: "Q. Wolt 2/PAT00000/I0000004" | sizeBytes: 353268
+  - relativePath: "Q. Wolt 2/PAT00000/I0000005" | sizeBytes: 353256
+  - relativePath: "Q. Wolt 2/PAT00000/I0000006" | sizeBytes: 353936
+  - relativePath: "Q. Wolt 2/PAT00000/I0000007" | sizeBytes: 353652
+  - relativePath: "Q. Wolt 2/PAT00000/I0000008" | sizeBytes: 354162
+  - relativePath: "Q. Wolt 2/PAT00000/I0000009" | sizeBytes: 353940
+  - relativePath: "Q. Wolt 2/PAT00000/I0000010" | sizeBytes: 354432
+  - relativePath: "Q. Wolt 2/PAT00000/I0000011" | sizeBytes: 354152
+  - omittedFilesInThisDirectory: 687
+
+Directory "Q. Wolt 2"
+- subdirectoryCount: 1
+- fileCount: 1
+- fileTypes: [no extension]: 1
+- files:
+  - relativePath: "Q. Wolt 2/DICOMDIR" | sizeBytes: 213066
+
+Directory "."
+- subdirectoryCount: 1
+- fileCount: 0
+
+### EXPECTED_4
+
+{ "path": "Q. Wolt 2/PAT00000/I0000000" }
+
+
+### TEST_5
+
+Directory "DICOMRM/20200827/11432346/20200827/103047/CT3"
+- subdirectoryCount: 0
+- fileCount: 512
+- fileTypes: [no extension]: 512
+- files:
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/CT3/000" | sizeBytes: 878330
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/CT3/001" | sizeBytes: 526076
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/CT3/002" | sizeBytes: 526076
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/CT3/003" | sizeBytes: 526076
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/CT3/004" | sizeBytes: 526076
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/CT3/005" | sizeBytes: 526076
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/CT3/006" | sizeBytes: 526076
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/CT3/007" | sizeBytes: 526076
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/CT3/008" | sizeBytes: 526076
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/CT3/009" | sizeBytes: 526076
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/CT3/010" | sizeBytes: 526080
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/CT3/011" | sizeBytes: 526080
+  - omittedFilesInThisDirectory: 500
+
+Directory "DICOMRM/20200827/11432346/20200827/103047/COMP4"
+- subdirectoryCount: 0
+- fileCount: 7
+- fileTypes: [no extension]: 7
+- files:
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/COMP4/0" | sizeBytes: 1818
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/COMP4/1" | sizeBytes: 1826
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/COMP4/2" | sizeBytes: 29420
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/COMP4/3" | sizeBytes: 1818
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/COMP4/4" | sizeBytes: 4492
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/COMP4/5" | sizeBytes: 3424
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/COMP4/6" | sizeBytes: 5424
+
+Directory "DICOMRM/20200827/11432346/20200827/103047/COMP0"
+- subdirectoryCount: 0
+- fileCount: 1
+- fileTypes: [no extension]: 1
+- files:
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/COMP0/0" | sizeBytes: 751160
+
+Directory "DICOMRM/20200827/11432346/20200827/103047/COMP1"
+- subdirectoryCount: 0
+- fileCount: 1
+- fileTypes: [no extension]: 1
+- files:
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/COMP1/0" | sizeBytes: 525698
+
+Directory "DICOMRM/20200827/11432346/20200827/103047/COMP2"
+- subdirectoryCount: 0
+- fileCount: 1
+- fileTypes: [no extension]: 1
+- files:
+  - relativePath: "DICOMRM/20200827/11432346/20200827/103047/COMP2/0" | sizeBytes: 1508746
+
+### EXPECTED_5
+
+{ "path": "DICOMRM/20200827/11432346/20200827/103047/CT3/000" }
+
+
+### TEST_6
+
+Directory "Rick Bleh"
+- subdirectoryCount: 1
+- fileCount: 576
+- fileTypes: .dcm: 576
+- files:
+  - relativePath: "Rick Bleh/00000.dcm" | sizeBytes: 389568
+  - relativePath: "Rick Bleh/00001.dcm" | sizeBytes: 391328
+  - relativePath: "Rick Bleh/00002.dcm" | sizeBytes: 393226
+  - relativePath: "Rick Bleh/00003.dcm" | sizeBytes: 395412
+  - relativePath: "Rick Bleh/00004.dcm" | sizeBytes: 397336
+  - relativePath: "Rick Bleh/00005.dcm" | sizeBytes: 399110
+  - relativePath: "Rick Bleh/00006.dcm" | sizeBytes: 400620
+  - relativePath: "Rick Bleh/00007.dcm" | sizeBytes: 401590
+  - relativePath: "Rick Bleh/00008.dcm" | sizeBytes: 402658
+  - relativePath: "Rick Bleh/00009.dcm" | sizeBytes: 403094
+  - relativePath: "Rick Bleh/00010.dcm" | sizeBytes: 403684
+  - relativePath: "Rick Bleh/00011.dcm" | sizeBytes: 404332
+  - omittedFilesInThisDirectory: 564
+
+Directory "Rick Bleh/CASEDATA"
+- subdirectoryCount: 0
+- fileCount: 2
+- fileTypes: .invwu: 1, .wudat: 1
+- files:
+  - relativePath: "Rick Bleh/CASEDATA/Workup.invwu" | sizeBytes: 13979114
+  - relativePath: "Rick Bleh/CASEDATA/Workup.wudat" | sizeBytes: 1108
+
+Directory "."
+- subdirectoryCount: 1
+- fileCount: 0
+
+
+### EXPECTED_6
+
+{ "path": "Rick Bleh/00000.dcm" }
+
+
+### TEST_7
+
+Directory "."
+- subdirectoryCount: 0
+- fileCount: 6
+- fileTypes: .xml: 3, [no extension]: 3
+- files:
+  - relativePath: "CT0" | sizeBytes: 59846860
+  - relativePath: "CT0.xml" | sizeBytes: 9038
+  - relativePath: "CT1" | sizeBytes: 92586688
+  - relativePath: "CT1.xml" | sizeBytes: 77400
+  - relativePath: "CT2" | sizeBytes: 48594076
+  - relativePath: "CT2.xml" | sizeBytes: 9038
+
+
+### EXPECTED_7
+
+{ "path": "CT1" }
+
+### TEST_8
+
+Directory "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672"
+- subdirectoryCount: 0
+- fileCount: 951
+- fileTypes: .dcm: 951
+- files:
+  - relativePath: "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00000.dcm" | sizeBytes: 2206370
+  - relativePath: "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00001.dcm" | sizeBytes: 2206370
+  - relativePath: "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00002.dcm" | sizeBytes: 2206370
+  - relativePath: "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00003.dcm" | sizeBytes: 2206370
+  - relativePath: "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00004.dcm" | sizeBytes: 2206370
+  - relativePath: "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00005.dcm" | sizeBytes: 2206370
+  - relativePath: "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00006.dcm" | sizeBytes: 2206370
+  - relativePath: "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00007.dcm" | sizeBytes: 2206370
+  - relativePath: "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00008.dcm" | sizeBytes: 2206370
+  - relativePath: "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00009.dcm" | sizeBytes: 2206370
+  - relativePath: "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00010.dcm" | sizeBytes: 2206370
+  - relativePath: "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00011.dcm" | sizeBytes: 2206370
+  - omittedFilesInThisDirectory: 939
+
+Directory "20260527_153144/SimpleViewer/Bin"
+- subdirectoryCount: 9
+- fileCount: 129
+- fileTypes: .dll: 126, .exe: 2, .ini: 1
+- files:
+  - relativePath: "20260527_153144/SimpleViewer/Bin/authentication.dll" | sizeBytes: 109832
+  - relativePath: "20260527_153144/SimpleViewer/Bin/DMesh.dll" | sizeBytes: 3448320
+  - relativePath: "20260527_153144/SimpleViewer/Bin/ES3DEngine.dll" | sizeBytes: 3608832
+  - relativePath: "20260527_153144/SimpleViewer/Bin/ES3DModelViewer.dll" | sizeBytes: 193800
+  - relativePath: "20260527_153144/SimpleViewer/Bin/ESCaptureImage.dll" | sizeBytes: 9521416
+  - relativePath: "20260527_153144/SimpleViewer/Bin/ESExImportPatient.dll" | sizeBytes: 5313808
+  - relativePath: "20260527_153144/SimpleViewer/Bin/ESLinkage3rdLibrary.dll" | sizeBytes: 48912
+  - relativePath: "20260527_153144/SimpleViewer/Bin/ESPARALLEL.dll" | sizeBytes: 18432
+  - relativePath: "20260527_153144/SimpleViewer/Bin/ESSMTPSender.dll" | sizeBytes: 3786240
+  - relativePath: "20260527_153144/SimpleViewer/Bin/EzCloudService.dll" | sizeBytes: 143112
+  - relativePath: "20260527_153144/SimpleViewer/Bin/GuideDesignEngine.dll" | sizeBytes: 263168
+  - relativePath: "20260527_153144/SimpleViewer/Bin/iwtkPublicModules.dll" | sizeBytes: 19883008
+  - omittedFilesInThisDirectory: 117
+
+Directory "20260527_153144/SimpleViewer/Layout/Viewer"
+- subdirectoryCount: 0
+- fileCount: 32
+- fileTypes: .lay: 16, .png: 16
+- files:
+  - relativePath: "20260527_153144/SimpleViewer/Layout/Viewer/Viewer_DSLR_IO_STANDARD_LR.lay" | sizeBytes: 1412
+  - relativePath: "20260527_153144/SimpleViewer/Layout/Viewer/Viewer_DSLR_IO_STANDARD_LR.png" | sizeBytes: 4054
+  - relativePath: "20260527_153144/SimpleViewer/Layout/Viewer/Viewer_DSLR_IO_STANDARD_RL.lay" | sizeBytes: 1412
+  - relativePath: "20260527_153144/SimpleViewer/Layout/Viewer/Viewer_DSLR_IO_STANDARD_RL.png" | sizeBytes: 4068
+  - relativePath: "20260527_153144/SimpleViewer/Layout/Viewer/Viewer_DSLR_Photo_IO_LR.lay" | sizeBytes: 2200
+  - relativePath: "20260527_153144/SimpleViewer/Layout/Viewer/Viewer_DSLR_Photo_IO_LR.png" | sizeBytes: 11526
+  - relativePath: "20260527_153144/SimpleViewer/Layout/Viewer/Viewer_DSLR_Photo_IO_RL.lay" | sizeBytes: 2200
+  - relativePath: "20260527_153144/SimpleViewer/Layout/Viewer/Viewer_DSLR_Photo_IO_RL.png" | sizeBytes: 11499
+  - relativePath: "20260527_153144/SimpleViewer/Layout/Viewer/Viewer_DSLR_Photo.lay" | sizeBytes: 1212
+  - relativePath: "20260527_153144/SimpleViewer/Layout/Viewer/Viewer_DSLR_Photo.png" | sizeBytes: 5179
+  - relativePath: "20260527_153144/SimpleViewer/Layout/Viewer/Viewer_DSLRFrame3X3.lay" | sizeBytes: 2214
+  - relativePath: "20260527_153144/SimpleViewer/Layout/Viewer/Viewer_DSLRFrame3X3.png" | sizeBytes: 4214
+  - omittedFilesInThisDirectory: 20
+
+Directory "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR"
+- subdirectoryCount: 0
+- fileCount: 32
+- fileTypes: .png: 32
+- files:
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR/LayoutMPR01_Focused.png" | sizeBytes: 4861
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR/LayoutMPR01_Normal.png" | sizeBytes: 2589
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR/LayoutMPR02_Focused.png" | sizeBytes: 4847
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR/LayoutMPR02_Normal.png" | sizeBytes: 2572
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR/LayoutMPR03_Focused.png" | sizeBytes: 4921
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR/LayoutMPR03_Normal.png" | sizeBytes: 2590
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR/LayoutMPR04_Focused.png" | sizeBytes: 4780
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR/LayoutMPR04_Normal.png" | sizeBytes: 2580
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR/LayoutMPR05_Focused.png" | sizeBytes: 4638
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR/LayoutMPR05_Normal.png" | sizeBytes: 2472
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR/LayoutMPR06_Focused.png" | sizeBytes: 4579
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/MPR/LayoutMPR06_Normal.png" | sizeBytes: 2479
+  - omittedFilesInThisDirectory: 20
+
+Directory "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section"
+- subdirectoryCount: 0
+- fileCount: 32
+- fileTypes: .png: 32
+- files:
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section/LayoutSection01_Focused.png" | sizeBytes: 5875
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section/LayoutSection01_Normal.png" | sizeBytes: 2962
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section/LayoutSection02_Focused.png" | sizeBytes: 4583
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section/LayoutSection02_Normal.png" | sizeBytes: 2474
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section/LayoutSection03_Focused.png" | sizeBytes: 5181
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section/LayoutSection03_Normal.png" | sizeBytes: 2843
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section/LayoutSection04_Focused.png" | sizeBytes: 6292
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section/LayoutSection04_Normal.png" | sizeBytes: 3115
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section/LayoutSection05_Focused.png" | sizeBytes: 6137
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section/LayoutSection05_Normal.png" | sizeBytes: 3261
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section/LayoutSection06_Focused.png" | sizeBytes: 3533
+  - relativePath: "20260527_153144/SimpleViewer/Resource/Layout/Preview/Section/LayoutSection06_Normal.png" | sizeBytes: 2190
+  - omittedFilesInThisDirectory: 20
+
+
+### EXPECTED_8
+
+{ "path": "20260527_153144/SimpleViewer/Images/CT20260522_095628_6165_83266672/DCM_00000.dcm" }
+
+
+### TEST_9
+
+Directory "000000000528_20260604122704"
+- subdirectoryCount: 0
+- fileCount: 238
+- fileTypes: .dcm: 238
+- files:
+  - relativePath: "000000000528_20260604122704/SLZ-001.dcm" | sizeBytes: 234216
+  - relativePath: "000000000528_20260604122704/SLZ-002.dcm" | sizeBytes: 234216
+  - relativePath: "000000000528_20260604122704/SLZ-003.dcm" | sizeBytes: 234216
+  - relativePath: "000000000528_20260604122704/SLZ-004.dcm" | sizeBytes: 234216
+  - relativePath: "000000000528_20260604122704/SLZ-005.dcm" | sizeBytes: 234216
+  - relativePath: "000000000528_20260604122704/SLZ-006.dcm" | sizeBytes: 234216
+  - relativePath: "000000000528_20260604122704/SLZ-007.dcm" | sizeBytes: 234216
+  - relativePath: "000000000528_20260604122704/SLZ-008.dcm" | sizeBytes: 234216
+  - relativePath: "000000000528_20260604122704/SLZ-009.dcm" | sizeBytes: 234216
+  - relativePath: "000000000528_20260604122704/SLZ-010.dcm" | sizeBytes: 234216
+  - relativePath: "000000000528_20260604122704/SLZ-011.dcm" | sizeBytes: 234216
+  - relativePath: "000000000528_20260604122704/SLZ-012.dcm" | sizeBytes: 234216
+  - omittedFilesInThisDirectory: 226
+
+Directory "."
+- subdirectoryCount: 1
+- fileCount: 0
+
+
+### EXPECTED_9
+
+{ "path": "000000000528_20260604122704/SLZ-001.dcm" }
+
+
+### TEST_10
+
+Directory "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025"
+- subdirectoryCount: 0
+- fileCount: 627
+- fileTypes: .dcm: 626, [no extension]: 1
+- files:
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081000.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081001.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081002.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081003.dcm" | sizeBytes: 1334368
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081004.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081005.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081006.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081007.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081008.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081009.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081010.dcm" | sizeBytes: 1334372
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081011.dcm" | sizeBytes: 1334372
+  - omittedFilesInThisDirectory: 615
+
+Directory "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025"
+- subdirectoryCount: 0
+- fileCount: 627
+- fileTypes: .dcm: 626, [no extension]: 1
+- files:
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081000.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081001.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081002.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081003.dcm" | sizeBytes: 1334366
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081004.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081005.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081006.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081007.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081008.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081009.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081010.dcm" | sizeBytes: 1334370
+  - relativePath: "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081011.dcm" | sizeBytes: 1334370
+  - omittedFilesInThisDirectory: 615
+
+Directory "."
+- subdirectoryCount: 1
+- fileCount: 0
+
+Directory "Abdul, Jamal"
+- subdirectoryCount: 2
+- fileCount: 0
+
+### EXPECTED_10
+
+{
+  "paths": [
+    "Abdul, Jamal/Abdul, Jamal - Closed Mouth - Dicoms - 4.29.2025/3eehdjdejgd324081000.dcm",
+    "Abdul, Jamal/Abdul, Jamal - Open Mouth - Dicoms - 4.29.2025/3eehdjdejgd124081000.dcm"
+  ]
+}
